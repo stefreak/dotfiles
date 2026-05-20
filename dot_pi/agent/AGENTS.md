@@ -14,6 +14,12 @@
   - `except Exception:` — too broad.
   - `except SomeError: pass` — silently discards.
 
+## Documentation
+
+- **Write docs that age well.** Prefer stable descriptions (purpose, architecture, how to explore) over snapshots of current state. If a reader can derive it by running a command or reading a file, don't bake it into prose — it will be wrong within days.
+- Examples of what rots fast: file trees, line-number references, exhaustive option lists, config snippets that duplicate source files.
+- Instead, point the reader in the right direction: where to look, what tool to run, what pattern to grep for.
+
 ## Testing
 
 - **Never use `unittest.mock` (`patch`, `MagicMock`, etc.).**
