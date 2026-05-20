@@ -4,7 +4,7 @@
       "command": "uvx",
       "args": ["kagimcp"],
       "env": {
-        "KAGI_API_KEY": "{{ env "KAGI_API_KEY" }}"
+        "KAGI_API_KEY": "{{ keyring "kagi" "api" }}"
       }
     },
     "playwright": {

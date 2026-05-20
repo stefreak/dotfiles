@@ -14,23 +14,12 @@ chezmoi edit ~/.somefile # edit source state
 
 ## Secrets
 
-API keys are read from environment variables via Go templates:
-- `KAGI_API_KEY` → `.mcporter/mcporter.json`
-- `ZAI_API_KEY` → `.pi/agent/auth.json`
+Secrets are stored in macOS Keyring and injected via Go templates:
 
-Set these in your shell profile (`~/.zshrc` or similar).
-
-## Structure
-
+```sh
+chezmoi secret keyring set --service=kagi --user=api
+chezmoi secret keyring set --service=zai --user=api    # optional
 ```
-dot_pi/agent/           → ~/.pi/agent/
-  AGENTS.md
-  models.json
-  auth.json.tmpl        # template: {{ env "ZAI_API_KEY" }}
-  skills/
-    kagi/SKILL.md
-    browser/SKILL.md
-dot_mcporter/           → ~/.mcporter/
-  mcporter.json.tmpl    # template: {{ env "KAGI_API_KEY" }}
-run_onchange_install-packages.sh  # npm: pi, mcporter
-```
+
+- **kagi** (required) → `.mcporter/mcporter.json`
+- **zai** (optional) → `.pi/agent/auth.json`

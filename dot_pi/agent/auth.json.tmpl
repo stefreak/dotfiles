@@ -1,5 +1,6 @@
+{{- $zai := output "sh" "-c" "chezmoi secret keyring get --service=zai --user=api 2>/dev/null || true" -}}
 {
-{{- if env "ZAI_API_KEY" }}
-  "zai": "{{ env "ZAI_API_KEY" }}"
+{{- if $zai }}
+  "zai": "{{ $zai }}"
 {{- end }}
 }
