@@ -37,7 +37,18 @@ All tools are accessed via `mcporter call playwright.<tool_name>` with `key=valu
 4. After any action that changes the page, take a new snapshot to see the updated state
 5. Repeat until the task is done
 
-## Notes
+## When to Use Screenshots vs. Snapshots
+
+Accessibility snapshots (`browser_snapshot`) are good for finding interactive elements and reading structured text. However, **screenshots (`browser_take_screenshot`) should be preferred** in these cases:
+
+- **Taking in information visually** — layout, spacing, alignment, visual hierarchy, colors, typography, responsive behavior.
+- **Making or evaluating changes to layout, design, or colors** — after editing CSS/HTML, take a screenshot to verify the result.
+- **Improving layout or design** — when the user asks to improve how something looks, screenshots are the only way to actually see it.
+- **Complex HTML** — when the accessibility tree is too large or complex to extract the necessary information from text alone, a screenshot gives an immediate visual summary.
+
+In short: **use snapshots to find and interact with elements; use screenshots to see and judge visual output.** When in doubt about whether a change looks right, take a screenshot.
+
+## General Notes
 
 - Always use `mcporter call` via the bash tool — never attempt direct HTTP calls
 - Prefer `browser_snapshot` over screenshots for extracting text content — it returns structured accessibility tree data
