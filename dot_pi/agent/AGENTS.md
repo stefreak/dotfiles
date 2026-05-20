@@ -3,16 +3,16 @@
 ## Error Handling
 
 - **Never swallow errors.** A loud crash is always better than a silent bug.
-- **Don't catch an exception just to return a default value** (e.g. `except: return False`). If something fails, the caller must know. Let the exception propagate so upstream can act on it.
-- **Catch only specific exception types** and only when there is a genuine recovery path — not to hide the failure.
+- **Don't catch an error just to return a default value.** If something fails, the caller must know. Let the error propagate so upstream can act on it.
+- **Catch only specific error types** and only when there is a genuine recovery path — not to hide the failure.
 - Valid patterns:
-  - `try/finally` for cleanup (no `except`).
+  - Using a cleanup/ensure block to release resources while still letting the error propagate.
   - Catching a specific error to add context then re-raising.
   - Catching in a CLI entrypoint to print a clean message and exit nonzero.
 - Invalid patterns:
-  - `except SomeError: return False` — hides the error from the caller.
-  - `except Exception:` — too broad.
-  - `except SomeError: pass` — silently discards.
+  - Catching an error and returning a default — hides the failure from the caller.
+  - Catching the base exception type — too broad.
+  - Catching an error and silently discarding it.
 
 ## Documentation
 
@@ -23,6 +23,6 @@
 ## Testing
 
 - **Test against real behavior, not against mocks.** Don't stub out the thing you're trying to verify — exercise the real code path. If that's too slow or fragile, fix the design, not the test.
-  - e.g. use `responses` to register expected HTTP responses and assert on calls, rather than patching the HTTP client.
-  - e.g. write real dummy scripts in a tempdir and invoke them via real `subprocess`, rather than parsing fixture strings.
-- **Don't unit-test CLI status scripts.** Test them against the real thing. Only extract and test tricky pure functions.
+  - e.g. record and replay HTTP responses rather than patching the HTTP client.
+  - e.g. write real helper scripts in a tempdir and invoke real shell commands, rather than parsing fixture strings.
+- **Don't unit-test glue code.** If a function just calls other things and formats output (e.g. a CLI script that checks system state and prints a summary), unit testing it means mocking everything — which tests nothing. Test it end-to-end against the real thing, or extract the interesting logic into pure functions and test those.
