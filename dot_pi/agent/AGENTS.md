@@ -2,6 +2,10 @@
 
 - **Before editing any file under `~/.*` (dotfiles and dotdirs in home), read the dotfiles skill.** These may be chezmoi-managed and require syncing. No exceptions.
 
+# Safety
+
+- **Never run destructive remote commands without explicit permission.** This includes (but is not limited to): `reboot`, `shutdown`, `rm -rf`, `ha host reboot`, `ha apps uninstall`, `docker rm`, `mkfs`, `dd`, or any command that destroys data or causes downtime. Always propose the command and wait for approval. No exceptions.
+
 # Engineering Principles
 
 ## Error Handling
