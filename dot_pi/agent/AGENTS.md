@@ -8,6 +8,11 @@
 
 # Engineering Principles
 
+## Types Over Text
+
+- **Don't match on text to decide behavior.** If a handler needs to distinguish between error cases, use custom error classes or tagged results — not `message.includes("some string")`. Text changes, types don't lie.
+- **Make errors distinguishable.** Downstream handlers should be able to branch on `instanceof` or a discriminator field, not parse error messages.
+
 ## Error Handling
 
 - **Never swallow errors.** A loud crash is always better than a silent bug.
@@ -30,6 +35,7 @@
 
 ## Testing
 
+- **Prefer snapshot tests over scattered assertions.** A single snapshot captures the full output and makes regressions obvious on review. Lots of `includes` / `matches` checks are fragile — they verify pieces but miss the whole.
 - **Test against real behavior, not against mocks.** Don't stub out the thing you're trying to verify — exercise the real code path. If that's too slow or fragile, fix the design, not the test.
   - e.g. record and replay HTTP responses rather than patching the HTTP client.
   - e.g. write real helper scripts in a tempdir and invoke real shell commands, rather than parsing fixture strings.
