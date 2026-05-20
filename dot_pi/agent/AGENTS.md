@@ -5,11 +5,11 @@
 - **Never swallow errors.** A loud crash is always better than a silent bug.
 - **Don't catch an exception just to return a default value** (e.g. `except: return False`). If something fails, the caller must know. Let the exception propagate so upstream can act on it.
 - **Catch only specific exception types** and only when there is a genuine recovery path — not to hide the failure.
-- Valid exception handling:
+- Valid patterns:
   - `try/finally` for cleanup (no `except`).
   - Catching a specific error to add context then re-raising.
   - Catching in a CLI entrypoint to print a clean message and exit nonzero.
-- Invalid exception handling:
+- Invalid patterns:
   - `except SomeError: return False` — hides the error from the caller.
   - `except Exception:` — too broad.
   - `except SomeError: pass` — silently discards.
@@ -22,7 +22,7 @@
 
 ## Testing
 
-- **Never use `unittest.mock` (`patch`, `MagicMock`, etc.).**
-- Use `responses` library for HTTP: register expected responses, then assert on calls.
-- For subprocess code: write real dummy shell scripts in a tempdir and invoke them via real `subprocess`. Parsing fixture strings does not test your assumptions.
-- Don't write unit tests for CLI status scripts — test them against the real thing. Only extract and test tricky pure functions.
+- **Test against real behavior, not against mocks.** Don't stub out the thing you're trying to verify — exercise the real code path. If that's too slow or fragile, fix the design, not the test.
+  - e.g. use `responses` to register expected HTTP responses and assert on calls, rather than patching the HTTP client.
+  - e.g. write real dummy scripts in a tempdir and invoke them via real `subprocess`, rather than parsing fixture strings.
+- **Don't unit-test CLI status scripts.** Test them against the real thing. Only extract and test tricky pure functions.
