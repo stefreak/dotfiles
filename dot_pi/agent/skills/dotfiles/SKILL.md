@@ -1,6 +1,6 @@
 ---
 name: dotfiles
-MUST read before making any changes to dotfiles or chezmoi-managed files. Covers syncing to chezmoi and pushing to GitHub — always ask the user for permission first.
+description: "MUST read before making any changes to files under ~/.* (dotfiles and dotdirs in home). Covers syncing to chezmoi and pushing to GitHub — always ask the user for permission before proceeding."
 ---
 
 # Dotfiles & Chezmoi
