@@ -1,6 +1,6 @@
 # Workflow Rules
 
-- **Before editing any file under `~/`, read the dotfiles skill.** These files may be chezmoi-managed and require syncing. No exceptions.
+- **Before editing any file under `~/.*` (dotfiles and dotdirs in home), read the dotfiles skill.** These may be chezmoi-managed and require syncing. No exceptions.
 
 # Engineering Principles
 
