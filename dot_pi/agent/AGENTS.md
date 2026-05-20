@@ -1,3 +1,7 @@
+# Workflow Rules
+
+- **Before editing any file under `~/`, read the dotfiles skill.** These files may be chezmoi-managed and require syncing. No exceptions.
+
 # Engineering Principles
 
 ## Error Handling

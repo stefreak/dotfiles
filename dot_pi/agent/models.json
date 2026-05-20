@@ -16,7 +16,7 @@
           "reasoning": true,
           "input": ["text", "image"],
           "contextWindow": 262144,
-          "maxTokens": 32768,
+          "maxTokens": 81920,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }
       ]
@@ -37,7 +37,7 @@
           "reasoning": true,
           "input": ["text", "image"],
           "contextWindow": 262144,
-          "maxTokens": 32768,
+          "maxTokens": 81920,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }
       ]

@@ -11,6 +11,10 @@ Dotfiles are managed via [chezmoi](https://www.chezmoi.io).
 - **Source directory:** `~/.local/share/chezmoi/`
 - **Managed paths:** `~/.pi/`, `~/.mcporter/`, and anything added via `chezmoi add`
 
+## Before Editing
+
+Before modifying any chezmoi-managed file, run `chezmoi diff` to check for uncommitted drift. If the diff is not clean, **stop and inform the user** — do not layer new changes on top of unsynced ones.
+
 ## When to Sync
 
 After editing any chezmoi-managed file — or **creating new skills or config files** under `~/.pi/agent/` — that should persist across machines, you **MUST propose syncing to chezmoi and ask the user for permission before proceeding.**
