@@ -1,6 +1,6 @@
 ---
 name: browser
-description: Control a web browser (navigate, click, type, screenshot) using Playwright MCP via mcporter.
+description: Control a web browser using Playwright MCP via mcporter. Only use for web development tasks (e.g. iterating on React apps, visual debugging) or when actual browser interaction is needed (e.g. single-page apps, JavaScript-heavy sites). Do NOT use for simple URL fetching — prefer curl instead.
 ---
 
 # Playwright Browser Control
