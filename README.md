@@ -5,7 +5,8 @@ Managed by [chezmoi](https://www.chezmoi.io).
 ## Setup on a new machine
 
 ```sh
-brew install chezmoi
+brew install gh chezmoi
+gh auth login
 chezmoi init --apply stefreak
 ```
 
