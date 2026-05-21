@@ -132,6 +132,14 @@ export function shouldConfirmTool(
 export const SANDBOX_CONTEXT_INTERVAL = 50;
 
 /**
+ * Decide whether to show the full or brief footer based on call count.
+ * Returns true on the first call after a reset and every N calls.
+ */
+export function shouldShowFullFooter(callCount: number): boolean {
+	return callCount === 1 || callCount % SANDBOX_CONTEXT_INTERVAL === 0;
+}
+
+/**
  * Brief footer appended to every sandboxed bash result.
  */
 export function sandboxFooterBrief(): string {

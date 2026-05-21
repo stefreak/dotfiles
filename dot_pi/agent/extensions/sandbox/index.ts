@@ -39,11 +39,11 @@ import {
 	formatEditDiff,
 	getRuntimeConfigForMode,
 	modeStatusText,
-	SANDBOX_CONTEXT_INTERVAL,
 	type SandboxMode,
 	sandboxFooterBrief,
 	sandboxFooterFull,
 	shouldConfirmTool,
+	shouldShowFullFooter,
 } from "./config.js";
 
 function createSandboxedBashOps(): BashOperations {
@@ -172,6 +172,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		currentMode = mode;
+		toolCallCount = 0;
 
 		if (mode === "sandboxed") {
 			const platform = process.platform;
@@ -211,7 +212,7 @@ export default function (pi: ExtensionAPI) {
 
 	function getSandboxFooter(): string {
 		toolCallCount++;
-		if (toolCallCount % SANDBOX_CONTEXT_INTERVAL === 0) {
+		if (shouldShowFullFooter(toolCallCount)) {
 			return sandboxFooterFull();
 		}
 		return sandboxFooterBrief();

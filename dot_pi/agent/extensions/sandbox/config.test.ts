@@ -11,6 +11,7 @@ import {
 	sandboxFooterBrief,
 	sandboxFooterFull,
 	shouldConfirmTool,
+	shouldShowFullFooter,
 } from "./config.js";
 
 // ---------------------------------------------------------------------------
@@ -272,6 +273,30 @@ describe("sandboxInfo", () => {
 			If a command fails due to sandbox restrictions, re-run with askOutsideSandbox: true.
 			Do not ask the user first — just set the flag and re-run.
 			--- END SANDBOX ---"
+		`);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// shouldShowFullFooter
+// ---------------------------------------------------------------------------
+
+describe("shouldShowFullFooter", () => {
+	it("matches snapshot", () => {
+		const cases: Record<string, boolean> = {};
+		for (const n of [1, 2, 49, 50, 51, 100, 101]) {
+			cases[n] = shouldShowFullFooter(n);
+		}
+		expect(cases).toMatchInlineSnapshot(`
+			{
+			  "1": true,
+			  "100": true,
+			  "101": false,
+			  "2": false,
+			  "49": false,
+			  "50": true,
+			  "51": false,
+			}
 		`);
 	});
 });
