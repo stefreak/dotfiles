@@ -6,8 +6,8 @@
 	"scripts": {
 		"clean": "echo 'nothing to clean'",
 		"build": "echo 'nothing to build'",
-		"check": "echo 'nothing to check'",
-		"test": "node --import tsx/esm --test config.test.ts"
+		"check": "tsc --noEmit && biome check .",
+		"test": "vitest run"
 	},
 	"pi": {
 		"extensions": [
@@ -15,9 +15,14 @@
 		]
 	},
 	"dependencies": {
-		"@anthropic-ai/sandbox-runtime": "^0.0.26"
+		"@anthropic-ai/sandbox-runtime": "^0.0.26",
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
-		"tsx": "^4.22.3"
+		"@biomejs/biome": "^2.4.15",
+		"@types/node": "^25.9.1",
+		"tsx": "^4.22.3",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.7"
 	}
 }

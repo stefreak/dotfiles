@@ -1,184 +1,174 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+/**
+ * Integration tests for the sandbox deny list.
+ *
+ * These use the real @anthropic-ai/sandbox-runtime to verify that writes
+ * to restricted paths are actually blocked by the OS-level sandbox profile.
+ * Commands run through sandbox-exec via wrapWithSandbox, just like the
+ * extension does in production.
+ *
+ * Key insight: SandboxManager.initialize() resolves denyWrite patterns
+ * against process.cwd(), so we must chdir into the test workspace before
+ * initializing.
+ */
+
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DEFAULT_CONFIG, getSandboxRuntimeConfigForMode } from "./config.js";
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import { describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG } from "./config.js";
 
-/**
- * Integration tests for the sandbox deny list.
- * These use the real @anthropic-ai/sandbox-runtime to verify that writes
- * to restricted paths are actually blocked — catching missing or incorrect
- * patterns before they reach production.
- */
+const DENY_WRITE = DEFAULT_CONFIG.filesystem?.denyWrite;
+let originalCwd: string;
+let testRoot: string;
 
-describe("denied paths block real writes via SandboxManager", function () {
-	const isSupportedPlatform = process.platform === "darwin" || process.platform === "linux";
+/** Run a bash command inside the sandbox, return { exitCode, output } */
+async function sandboxedExec(
+	command: string,
+	cwd: string,
+): Promise<{ exitCode: number | null; output: string }> {
+	const wrappedCommand = await SandboxManager.wrapWithSandbox(command);
 
-	const sandboxModule = require("@anthropic-ai/sandbox-runtime");
-
-	/** Create, initialize sandbox with deny list, run fn, then reset + cleanup */
-	async function withSandbox(allowWrite: string[], denyWrite: string[], fn: (rootDir: string) => Promise<void>) {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "sandbox-integration-"));
-
-		await sandboxModule.SandboxManager.initialize({
-			network: { allowedDomains: [], deniedDomains: [] },
-			filesystem: { allowWrite, denyRead: [], denyWrite },
+	return new Promise((resolve) => {
+		const child = spawn("bash", ["-c", wrappedCommand], {
+			cwd,
+			detached: true,
+			stdio: ["ignore", "pipe", "pipe"],
 		});
 
-		try {
-			await fn(root);
-		} finally {
-			await sandboxModule.SandboxManager.reset();
-			fs.rmSync(root, { recursive: true, force: true });
-		}
+		let output = "";
+		child.stdout?.on("data", (data: Buffer) => {
+			output += data.toString();
+		});
+		child.stderr?.on("data", (data: Buffer) => {
+			output += data.toString();
+		});
+
+		child.on("close", (code) => {
+			resolve({ exitCode: code, output });
+		});
+	});
+}
+
+async function withSandbox(fn: (root: string) => Promise<void>) {
+	originalCwd = process.cwd();
+	testRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sandbox-integ-"));
+
+	// Must chdir before initialize — deny rules resolve against cwd
+	process.chdir(testRoot);
+
+	await SandboxManager.initialize({
+		network: { allowedDomains: [], deniedDomains: [] },
+		filesystem: {
+			allowWrite: ["."],
+			denyRead: [],
+			denyWrite: DENY_WRITE ?? [],
+		},
+	});
+
+	try {
+		await fn(testRoot);
+	} finally {
+		await SandboxManager.reset();
+		process.chdir(originalCwd);
+		fs.rmSync(testRoot, { recursive: true, force: true });
 	}
+}
 
+describe("denied paths block real writes via sandbox", () => {
 	it("blocks writes to .git anywhere in tree", async () => {
-		assert.ok(
-			DEFAULT_CONFIG.filesystem!.denyWrite!.some((p) => p.includes(".git")),
-			"`**/.git/**` should be in denyWrite",
-		);
+		await withSandbox(async (root) => {
+			const gitDir = path.join(root, "subdir", ".git");
+			fs.mkdirSync(gitDir, { recursive: true });
 
-		await withSandbox(
-			["."],
-			DEFAULT_CONFIG.filesystem!.denyWrite!,
-			async (root) => {
-				const gitDir = path.join(root, "subdir", ".git");
-				fs.mkdirSync(gitDir, { recursive: true });
-
-				const file = path.join(gitDir, "HEAD");
-				try {
-					fs.writeFileSync(file, "ref: refs/heads/main\n");
-					assert.fail(`writing to ${file} should have been denied`);
-				} catch (err: any) {
-					if (err.code === "EPERM" || err.message.includes("Permission denied")) {
-						return; // expected
-					}
-					throw err; // unexpected error — re-raise
-				}
-			},
-		);
+			const { exitCode, output } = await sandboxedExec(
+				`echo "ref: refs/heads/main" > ${path.join(gitDir, "HEAD")}`,
+				root,
+			);
+			expect(exitCode).not.toBe(0);
+			expect(output).toMatch(/Operation not permitted|Permission denied/i);
+		});
 	});
 
-	it("blocks writes to nested node_modules in workspace root", async () => {
-		assert.ok(
-			DEFAULT_CONFIG.filesystem!.denyWrite!.some((p) => p.includes("node_modules")),
-			"a node_modules pattern should be in denyWrite",
-		);
+	it("blocks writes to nested node_modules", async () => {
+		await withSandbox(async (root) => {
+			const nmDir = path.join(root, "node_modules");
+			fs.mkdirSync(nmDir, { recursive: true });
 
-		await withSandbox(
-			["."],
-			DEFAULT_CONFIG.filesystem!.denyWrite!,
-			async (root) => {
-				const nmDir = path.join(root, "node_modules");
-				fs.mkdirSync(nmDir, { recursive: true });
-
-				const file = path.join(nmDir, "pkg.js");
-				try {
-					fs.writeFileSync(file, "module.exports = {}");
-					assert.fail(`writing to ${file} should have been denied`);
-				} catch (err: any) {
-					if (err.code === "EPERM" || err.message.includes("Permission denied")) {
-						return; // expected
-					}
-					throw err;
-				}
-			},
-		);
+			const { exitCode, output } = await sandboxedExec(
+				`echo "module.exports = {}" > ${path.join(nmDir, "pkg.js")}`,
+				root,
+			);
+			expect(exitCode).not.toBe(0);
+			expect(output).toMatch(/Operation not permitted|Permission denied/i);
+		});
 	});
 
-	it("blocks writes to vendor/ anywhere in tree", async () => {
-		assert.ok(
-			DEFAULT_CONFIG.filesystem!.denyWrite!.some((p) => p.includes("vendor")),
-			"a vendor pattern should be in denyWrite",
-		);
+	it("blocks writes to vendor/ deep in tree", async () => {
+		await withSandbox(async (root) => {
+			const vDir = path.join(root, "subdir1", "subdir2", "vendor");
+			fs.mkdirSync(vDir, { recursive: true });
 
-		await withSandbox(
-			["."],
-			DEFAULT_CONFIG.filesystem!.denyWrite!,
-			async (root) => {
-				const vDir = path.join(root, "subdir1", "subdir2", "vendor");
-				fs.mkdirSync(vDir, { recursive: true });
-
-				const file = path.join(vDir, "composer.json");
-				try {
-					fs.writeFileSync(file, "{}");
-					assert.fail(`writing to ${file} should have been denied`);
-				} catch (err: any) {
-					if (err.code === "EPERM" || err.message.includes("Permission denied")) {
-						return; // expected
-					}
-					throw err;
-				}
-			},
-		);
+			const { exitCode, output } = await sandboxedExec(
+				`echo "{}" > ${path.join(vDir, "composer.json")}`,
+				root,
+			);
+			expect(exitCode).not.toBe(0);
+			expect(output).toMatch(/Operation not permitted|Permission denied/i);
+		});
 	});
 
 	it("blocks writes to __pycache__/", async () => {
-		assert.ok(
-			DEFAULT_CONFIG.filesystem!.denyWrite!.some((p) => p.includes("__pycache__")),
-			"a __pycache__ pattern should be in denyWrite",
-		);
+		await withSandbox(async (root) => {
+			const pcDir = path.join(root, "mydir", "__pycache__");
+			fs.mkdirSync(pcDir, { recursive: true });
 
-		await withSandbox(
-			["."],
-			DEFAULT_CONFIG.filesystem!.denyWrite!,
-			async (root) => {
-				const pcDir = path.join(root, "mydir", "__pycache__");
-				fs.mkdirSync(pcDir, { recursive: true });
-
-				const file = path.join(pcDir, "module.cpython-311.pyc");
-				try {
-					fs.writeFileSync(file, "\x00\x00");
-					assert.fail(`writing to ${file} should have been denied`);
-				} catch (err: any) {
-					if (err.code === "EPERM" || err.message.includes("Permission denied")) {
-						return; // expected
-					}
-					throw err;
-				}
-			},
-		);
+			const { exitCode, output } = await sandboxedExec(
+				`printf '\\x00\\x00' > ${path.join(pcDir, "module.cpython-311.pyc")}`,
+				root,
+			);
+			expect(exitCode).not.toBe(0);
+			expect(output).toMatch(/Operation not permitted|Permission denied/i);
+		});
 	});
 
 	it("blocks writes to .venv/", async () => {
-		assert.ok(
-			DEFAULT_CONFIG.filesystem!.denyWrite!.some((p) => p.includes(".venv")),
-			"a .venv pattern should be in denyWrite",
-		);
+		await withSandbox(async (root) => {
+			const vvDir = path.join(root, ".venv", "lib");
+			fs.mkdirSync(vvDir, { recursive: true });
 
-		await withSandbox(
-			["."],
-			DEFAULT_CONFIG.filesystem!.denyWrite!,
-			async (root) => {
-				const vvDir = path.join(root, ".venv", "lib");
-				fs.mkdirSync(vvDir, { recursive: true });
-
-				const file = path.join(vvDir, "site-packages.txt");
-				try {
-					fs.writeFileSync(file, "");
-					assert.fail(`writing to ${file} should have been denied`);
-				} catch (err: any) {
-					if (err.code === "EPERM" || err.message.includes("Permission denied")) {
-						return; // expected
-					}
-					throw err;
-				}
-			},
-		);
+			const { exitCode, output } = await sandboxedExec(
+				`echo "" > ${path.join(vvDir, "site-packages.txt")}`,
+				root,
+			);
+			expect(exitCode).not.toBe(0);
+			expect(output).toMatch(/Operation not permitted|Permission denied/i);
+		});
 	});
 
 	it("allows writing to workspace root", async () => {
-		await withSandbox(
-			["."],
-			DEFAULT_CONFIG.filesystem!.denyWrite!,
-			async (root) => {
-				const file = path.join(root, "ok.txt");
-				fs.writeFileSync(file, "hello\n");
+		await withSandbox(async (root) => {
+			const { exitCode } = await sandboxedExec(
+				`echo "hello" > ${path.join(root, "ok.txt")}`,
+				root,
+			);
+			expect(exitCode).toBe(0);
+			expect(fs.existsSync(path.join(root, "ok.txt"))).toBe(true);
+		});
+	});
 
-				assert.ok(fs.existsSync(file), "writing to workspace root should succeed");
-			},
-		);
+	it("allows writing to nested subdir that is not denied", async () => {
+		await withSandbox(async (root) => {
+			const srcDir = path.join(root, "src", "components");
+			fs.mkdirSync(srcDir, { recursive: true });
+
+			const { exitCode } = await sandboxedExec(
+				`echo "export const X = 1" > ${path.join(srcDir, "App.tsx")}`,
+				root,
+			);
+			expect(exitCode).toBe(0);
+			expect(fs.existsSync(path.join(srcDir, "App.tsx"))).toBe(true);
+		});
 	});
 });

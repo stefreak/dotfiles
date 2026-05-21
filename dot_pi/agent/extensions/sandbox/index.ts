@@ -51,27 +51,33 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type BashOperations, createBashTool, getAgentDir } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import {
+	type BashOperations,
+	createBashTool,
+	getAgentDir,
+} from "@earendil-works/pi-coding-agent";
+// @ts-expect-error — typebox is a transitive dependency from the pi SDK
 import { Type } from "typebox";
 import {
-	type SandboxMode,
-	type SandboxConfig,
-	DEFAULT_CONFIG,
-	loadConfigFromPaths,
-	getSandboxRuntimeConfigForMode,
-	shouldConfirmTool,
-	modeStatusText,
-	formatEditDiff,
-	BYPASS_OPTIONS,
 	BYPASS_ALLOW,
-	BYPASS_DENY,
-	CONFIRM_OPTIONS,
+	BYPASS_OPTIONS,
 	CONFIRM_ALLOW,
-	CONFIRM_DENY,
+	CONFIRM_OPTIONS,
+	formatEditDiff,
+	getSandboxRuntimeConfigForMode,
+	loadConfigFromPaths,
+	modeStatusText,
+	type SandboxConfig,
+	type SandboxMode,
+	shouldConfirmTool,
 } from "./config.js";
-import { join } from "node:path";
 
 function loadConfig(cwd: string): SandboxConfig {
 	const globalConfigPath = join(getAgentDir(), "extensions", "sandbox.json");
@@ -79,7 +85,10 @@ function loadConfig(cwd: string): SandboxConfig {
 	return loadConfigFromPaths(globalConfigPath, projectConfigPath);
 }
 
-function createSandboxedBashOps(): { ops: BashOperations; wasBlocked: () => boolean } {
+function createSandboxedBashOps(): {
+	ops: BashOperations;
+	wasBlocked: () => boolean;
+} {
 	let blocked = false;
 
 	const ops: BashOperations = {
@@ -150,9 +159,10 @@ function createSandboxedBashOps(): { ops: BashOperations; wasBlocked: () => bool
 					} else if (timedOut) {
 						reject(new Error(`timeout:${timeout}`));
 					} else {
-						blocked = output.includes("Connection blocked by network allowlist")
-							|| output.includes("Permission denied")
-							|| output.includes("Operation not permitted");
+						blocked =
+							output.includes("Connection blocked by network allowlist") ||
+							output.includes("Permission denied") ||
+							output.includes("Operation not permitted");
 						resolve({ exitCode: code });
 					}
 				});
@@ -185,7 +195,11 @@ export default function (pi: ExtensionAPI) {
 
 	const sandboxedParams = Type.Object({
 		command: Type.String({ description: "Bash command to execute" }),
-		timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+		timeout: Type.Optional(
+			Type.Number({
+				description: "Timeout in seconds (optional, no default timeout)",
+			}),
+		),
 		askOutsideSandbox: Type.Optional(
 			Type.Boolean({
 				description:
@@ -196,11 +210,16 @@ export default function (pi: ExtensionAPI) {
 
 	// --- Tool descriptions per mode ---
 
-	const BASH_DESCRIPTION = "Execute a bash command in the current sandbox mode.";
+	const BASH_DESCRIPTION =
+		"Execute a bash command in the current sandbox mode.";
 
 	// --- Switch mode (shared logic for shortcut and command) ---
 
-	async function switchMode(mode: SandboxMode, cwd: string, ctx: { ui: { setStatus: (key: string, text: string) => void; notify: (msg: string, level: string) => void } }) {
+	async function switchMode(
+		mode: SandboxMode,
+		cwd: string,
+		ctx: ExtensionContext | ExtensionCommandContext,
+	) {
 		if (mode === "yolo") {
 			currentMode = "yolo";
 			if (sandboxInitialized) {
@@ -218,7 +237,10 @@ export default function (pi: ExtensionAPI) {
 
 		const platform = process.platform;
 		if (platform !== "darwin" && platform !== "linux") {
-			ctx.ui.notify(`Sandbox not supported on ${platform}, cannot enable ${mode} mode`, "error");
+			ctx.ui.notify(
+				`Sandbox not supported on ${platform}, cannot enable ${mode} mode`,
+				"error",
+			);
 			return;
 		}
 
@@ -243,7 +265,10 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.setStatus("sandbox", modeStatusText(currentMode, config));
 			ctx.ui.notify(`${currentMode} mode`, "info");
 		} catch (err) {
-			ctx.ui.notify(`Failed to initialize sandbox: ${err instanceof Error ? err.message : err}`, "error");
+			ctx.ui.notify(
+				`Failed to initialize sandbox: ${err instanceof Error ? err.message : err}`,
+				"error",
+			);
 		}
 	}
 
@@ -268,16 +293,18 @@ export default function (pi: ExtensionAPI) {
 
 			// ask or sandboxed mode: ask the user for bypass approval
 			if (params.askOutsideSandbox) {
-				const choice = await ctx.ui.select(
-					"Sandbox bypass requested",
-					[...BYPASS_OPTIONS],
-				);
+				const choice = await ctx.ui.select("Sandbox bypass requested", [
+					...BYPASS_OPTIONS,
+				]);
 
 				if (choice === BYPASS_ALLOW) {
 					return localBash.execute(id, params, signal, onUpdate);
 				}
 
-				const feedback = await ctx.ui.input("Why deny?", "Explain why or suggest an alternative...");
+				const feedback = await ctx.ui.input(
+					"Why deny?",
+					"Explain why or suggest an alternative...",
+				);
 				const reason = feedback
 					? `Sandbox bypass denied. Feedback: ${feedback}`
 					: "Sandbox bypass denied.";
@@ -297,10 +324,16 @@ export default function (pi: ExtensionAPI) {
 			// Append sandbox notice if the command was blocked
 			if (wasBlocked()) {
 				const config = loadConfig(ctx.cwd);
-				ctx.ui.notify(`Sandbox restriction detected. Use /sandbox to see config or switch modes.`, "warning");
+				ctx.ui.notify(
+					`Sandbox restriction detected. Use /sandbox to see config or switch modes.`,
+					"warning",
+				);
 				return {
 					...result,
-					content: [...(result.content ?? []), { type: "text", text: sandboxNotice(config) }],
+					content: [
+						...(result.content ?? []),
+						{ type: "text", text: sandboxNotice(config) },
+					],
 				};
 			}
 
@@ -310,24 +343,36 @@ export default function (pi: ExtensionAPI) {
 
 	// --- Confirm every tool in ask mode ---
 
-	function formatToolInput(toolName: string, input: any): string {
-		if (toolName === "bash") return input.command ?? "(no command)";
-		if (toolName === "write") return `${input.path ?? "?"} (${(input.content ?? "").length} chars)`;
-		if (toolName === "read") return input.path ?? "?";
-		if (toolName === "edit") return input.path ?? "?";
+	function formatToolInput(
+		toolName: string,
+		input: Record<string, unknown>,
+	): string {
+		if (toolName === "bash") return String(input.command ?? "(no command)");
+		if (toolName === "write")
+			return `${input.path ?? "?"} (${String(input.content ?? "").length} chars)`;
+		if (toolName === "read") return String(input.path ?? "?");
+		if (toolName === "edit") return String(input.path ?? "?");
 		return JSON.stringify(input);
 	}
 
 	function toolCallLabel(toolName: string): string {
 		switch (toolName) {
-			case "bash": return "Bash command";
-			case "edit": return "File edit";
-			case "write": return "File write";
-			case "read": return "File read";
-			case "grep": return "Search";
-			case "find": return "Find files";
-			case "ls": return "List directory";
-			default: return toolName;
+			case "bash":
+				return "Bash command";
+			case "edit":
+				return "File edit";
+			case "write":
+				return "File write";
+			case "read":
+				return "File read";
+			case "grep":
+				return "Search";
+			case "find":
+				return "Find files";
+			case "ls":
+				return "List directory";
+			default:
+				return toolName;
 		}
 	}
 
@@ -335,24 +380,36 @@ export default function (pi: ExtensionAPI) {
 		if (!shouldConfirmTool(currentMode, event.toolName)) return;
 
 		const label = toolCallLabel(event.toolName);
-		const detail = formatToolInput(event.toolName, event.input);
+		const detail = formatToolInput(
+			event.toolName,
+			event.input as Record<string, unknown>,
+		);
 
 		// Show diff preview for edit tool calls
 		if (event.toolName === "edit") {
-			const diff = formatEditDiff(event.input);
+			const diff = formatEditDiff(
+				event.input as {
+					edits?: Array<{ oldText?: string; newText?: string }>;
+				},
+			);
 			const diffLines = diff.split("\n").length;
-			const truncatedDiff = diff.length > 500 ? diff.slice(0, 500) + `\n... (${diffLines} total lines)` : diff;
+			const truncatedDiff =
+				diff.length > 500
+					? `${diff.slice(0, 500)}\n... (${diffLines} total lines)`
+					: diff;
 			ctx.ui.notify(`${label}: ${detail}\n${truncatedDiff}`, "info");
 		}
 
-		const choice = await ctx.ui.select(
-			`${label}: ${detail}`,
-			[...CONFIRM_OPTIONS],
-		);
+		const choice = await ctx.ui.select(`${label}: ${detail}`, [
+			...CONFIRM_OPTIONS,
+		]);
 
 		if (choice === CONFIRM_ALLOW) return; // proceed with execution
 
-		const feedback = await ctx.ui.input(`Why deny ${label.toLowerCase()}?`, "Explain why or suggest an alternative...");
+		const feedback = await ctx.ui.input(
+			`Why deny ${label.toLowerCase()}?`,
+			"Explain why or suggest an alternative...",
+		);
 		const reason = feedback
 			? `${label} denied. Feedback: ${feedback}`
 			: `${label} denied.`;
@@ -370,17 +427,15 @@ export default function (pi: ExtensionAPI) {
 	// --- Append sandbox context on bash failures ---
 
 	function sandboxNotice(config: SandboxConfig): string {
-		const lines = [
-			"",
-			"--- SANDBOX ---",
-			`Mode: ${currentMode}`,
-		];
+		const lines = ["", "--- SANDBOX ---", `Mode: ${currentMode}`];
 
 		if (currentMode === "ask") {
 			lines.push("Every write requires user confirmation");
 		} else if (currentMode === "sandboxed") {
-			const allowedDomains = config.network?.allowedDomains?.join(", ") || "(none)";
-			const deniedDomains = config.network?.deniedDomains?.join(", ") || "(none)";
+			const allowedDomains =
+				config.network?.allowedDomains?.join(", ") || "(none)";
+			const deniedDomains =
+				config.network?.deniedDomains?.join(", ") || "(none)";
 			const denyRead = config.filesystem?.denyRead?.join(", ") || "(none)";
 			const allowWrite = config.filesystem?.allowWrite?.join(", ") || "(none)";
 			const denyWrite = config.filesystem?.denyWrite?.join(", ") || "(none)";
@@ -410,7 +465,10 @@ export default function (pi: ExtensionAPI) {
 
 		if (noSandbox) {
 			currentMode = "yolo";
-			ctx.ui.setStatus("sandbox", "🚀 YOLO mode: no restrictions --no-sandbox (/sandbox)");
+			ctx.ui.setStatus(
+				"sandbox",
+				"🚀 YOLO mode: no restrictions --no-sandbox (/sandbox)",
+			);
 			ctx.ui.notify("Sandbox disabled via --no-sandbox (yolo mode)", "warning");
 			return;
 		}
@@ -419,7 +477,10 @@ export default function (pi: ExtensionAPI) {
 
 		if (!config.enabled) {
 			currentMode = "yolo";
-			ctx.ui.setStatus("sandbox", "🚀 YOLO mode: no restrictions — disabled in config (/sandbox)");
+			ctx.ui.setStatus(
+				"sandbox",
+				"🚀 YOLO mode: no restrictions — disabled in config (/sandbox)",
+			);
 			ctx.ui.notify("Sandbox disabled via config (yolo mode)", "info");
 			return;
 		}
@@ -427,8 +488,14 @@ export default function (pi: ExtensionAPI) {
 		const platform = process.platform;
 		if (platform !== "darwin" && platform !== "linux") {
 			currentMode = "yolo";
-			ctx.ui.setStatus("sandbox", `🚀 YOLO mode: not supported on ${platform} (/sandbox)`);
-			ctx.ui.notify(`Sandbox not supported on ${platform} (yolo mode)`, "warning");
+			ctx.ui.setStatus(
+				"sandbox",
+				`🚀 YOLO mode: not supported on ${platform} (/sandbox)`,
+			);
+			ctx.ui.notify(
+				`Sandbox not supported on ${platform} (yolo mode)`,
+				"warning",
+			);
 			return;
 		}
 
