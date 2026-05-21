@@ -50,3 +50,8 @@
   - e.g. record and replay HTTP responses rather than patching the HTTP client.
   - e.g. write real helper scripts in a tempdir and invoke real shell commands, rather than parsing fixture strings.
 - **Don't unit-test glue code.** If a function just calls other things and formats output (e.g. a CLI script that checks system state and prints a summary), unit testing it means mocking everything — which tests nothing. Test it end-to-end against the real thing, or extract the interesting logic into pure functions and test those.
+
+## Editing
+
+- **Prefer targeted edits over full file rewrites.** Use search-and-replace (via `edit` or `sed`) to change specific regions. Rewriting entire files is error-prone — you lose context, drift from the original intent, and risk dropping details.
+- **Never fix things manually that a linter or formatter can fix safely.** Run `biome check --write`, `npm run fix`, etc. instead of hand-editing import order, formatting, or other mechanical changes.
