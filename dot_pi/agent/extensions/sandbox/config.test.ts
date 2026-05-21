@@ -153,10 +153,7 @@ describe("formatEditDiff", () => {
 			formatEditDiff({
 				edits: [{ oldText: "foo", newText: "" }],
 			}),
-		).toMatchInlineSnapshot(`
-			"- foo
-			"
-		`);
+		).toMatchInlineSnapshot(`"- foo"`);
 	});
 
 	it("shows addition", () => {
@@ -164,10 +161,7 @@ describe("formatEditDiff", () => {
 			formatEditDiff({
 				edits: [{ oldText: "", newText: "bar" }],
 			}),
-		).toMatchInlineSnapshot(`
-			"+ bar
-			"
-		`);
+		).toMatchInlineSnapshot(`"+ bar"`);
 	});
 
 	it("shows change", () => {
@@ -177,8 +171,7 @@ describe("formatEditDiff", () => {
 			}),
 		).toMatchInlineSnapshot(`
 			"- old
-			+ new
-			"
+			+ new"
 		`);
 	});
 
@@ -188,10 +181,10 @@ describe("formatEditDiff", () => {
 				edits: [{ oldText: "keep\nchange", newText: "keep\nchanged" }],
 			}),
 		).toMatchInlineSnapshot(`
-			"  keep
+			"- keep
 			- change
-			+ changed
-			"
+			+ keep
+			+ changed"
 		`);
 	});
 
@@ -212,8 +205,16 @@ describe("formatEditDiff", () => {
 			- line 7
 			- line 8
 			- line 9
-			... (10 more lines)
-			"
+			- line 10
+			- line 11
+			- line 12
+			- line 13
+			- line 14
+			- line 15
+			- line 16
+			- line 17
+			- line 18
+			- line 19"
 		`);
 	});
 
@@ -230,8 +231,7 @@ describe("formatEditDiff", () => {
 			+ b
 
 			- c
-			+ d
-			"
+			+ d"
 		`);
 	});
 

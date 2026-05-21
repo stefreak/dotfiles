@@ -76,44 +76,30 @@ export const CONFIRM_ALLOW = CONFIRM_OPTIONS[0];
 export const CONFIRM_DENY = CONFIRM_OPTIONS[1];
 
 /**
- * Format an edit tool's input as a diff-style summary.
+ * Format an edit tool's input as a unified diff.
  */
 export function formatEditDiff(input: {
 	edits?: Array<{ oldText?: string; newText?: string }>;
 }): string {
 	const edits = input.edits ?? [];
-	const lines: string[] = [];
+	const hunks: string[] = [];
 	for (const edit of edits) {
 		const oldText = edit.oldText ?? "";
 		const newText = edit.newText ?? "";
-		const oldLines = oldText === "" ? [] : oldText.split("\n");
-		const newLines = newText === "" ? [] : newText.split("\n");
-
-		const maxLines = Math.max(oldLines.length, newLines.length);
-		const shownLines = Math.min(maxLines, 10);
-
-		for (let i = 0; i < shownLines; i++) {
-			const oldLine = oldLines[i];
-			const newLine = newLines[i];
-			if (oldLine !== undefined && newLine !== undefined) {
-				if (oldLine === newLine) {
-					lines.push(`  ${oldLine}`);
-				} else {
-					lines.push(`- ${oldLine}`);
-					lines.push(`+ ${newLine}`);
-				}
-			} else if (oldLine !== undefined) {
-				lines.push(`- ${oldLine}`);
-			} else if (newLine !== undefined) {
-				lines.push(`+ ${newLine}`);
+		const lines: string[] = [];
+		if (oldText !== "") {
+			for (const line of oldText.split("\n")) {
+				lines.push(`- ${line}`);
 			}
 		}
-		if (maxLines > shownLines) {
-			lines.push(`... (${maxLines - shownLines} more lines)`);
+		if (newText !== "") {
+			for (const line of newText.split("\n")) {
+				lines.push(`+ ${line}`);
+			}
 		}
-		lines.push(""); // blank line between edits
+		hunks.push(lines.join("\n"));
 	}
-	return lines.join("\n");
+	return hunks.join("\n\n");
 }
 
 /**
