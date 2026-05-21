@@ -171,4 +171,20 @@ describe("denied paths block real writes via sandbox", () => {
 			expect(fs.existsSync(path.join(srcDir, "App.tsx"))).toBe(true);
 		});
 	});
+
+	it("blocks writes inside command substitution", async () => {
+		await withSandbox(async (root) => {
+			const gitDir = path.join(root, "subdir", ".git");
+			fs.mkdirSync(gitDir, { recursive: true });
+
+			// The write happens inside $(), not outside it.
+			// Exit code may be 0 because the outer command succeeds.
+			const targetFile = path.join(gitDir, "HEAD");
+			await sandboxedExec(
+				`x=$(echo "ref: refs/heads/main" > ${targetFile}); echo done`,
+				root,
+			);
+			expect(fs.existsSync(targetFile)).toBe(false);
+		});
+	});
 });
