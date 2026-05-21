@@ -4,6 +4,7 @@
 
 # Safety
 
+- **Never use `npx`.** Use `npm exec` to run locally installed binaries (e.g. `npm exec vitest run`, `npm exec tsc --noEmit`) or use `npm run` scripts. `npx` downloads and executes arbitrary packages from npm without review — it is an arbitrary code execution vector. No exceptions.
 - **Never run destructive remote commands without explicit permission.** This includes (but is not limited to): `reboot`, `shutdown`, `rm -rf`, `ha host reboot`, `ha apps uninstall`, `docker rm`, `mkfs`, `dd`, or any command that destroys data or causes downtime. Always propose the command and wait for approval. No exceptions.
 
 # Engineering Principles
