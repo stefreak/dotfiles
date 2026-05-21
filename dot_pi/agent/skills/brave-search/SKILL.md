@@ -24,6 +24,10 @@ Requires a Brave Search API account with a free subscription. A credit card is r
    npm install
    ```
 
+## Important: Direct Execution Required
+
+Scripts must be invoked directly, not via `node`.
+
 ## Search
 
 ```bash
