@@ -2,5 +2,9 @@
 set -euo pipefail
 
 # Configure the chezmoi source repo to use tracked git hooks
-chezmoi_source=$(chezmoi source-path)
-git -C "$chezmoi_source" config core.hooksPath .githooks
+repo="$HOME/.local/share/chezmoi"
+if [ ! -d "$repo/.git" ]; then
+	echo "ERROR: $repo is not a git repository" >&2
+	exit 1
+fi
+git -C "$repo" config core.hooksPath .githooks
