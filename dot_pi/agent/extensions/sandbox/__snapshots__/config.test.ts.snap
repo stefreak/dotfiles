@@ -491,7 +491,7 @@ exports[`getSandboxRuntimeConfigForMode > returns locked-down filesystem for ask
 exports[`modeStatusText > matches snapshot for all modes 1`] = `
 {
   "ask": "🔐 Ask mode: confirm writes, read-only sandbox (/sandbox)",
-  "sandboxed": "🎪 Sandboxed mode: play within boundaries (/sandbox)",
+  "sandboxed": "🎪 Sandboxed mode: play within ., /tmp (/sandbox)",
   "yolo": "🚀 YOLO mode: no restrictions, no questions",
 }
 `;

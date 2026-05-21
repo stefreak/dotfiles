@@ -15,17 +15,24 @@
 
 ## Error Handling
 
-- **Never swallow errors.** A loud crash is always better than a silent bug.
-- **Don't catch an error just to return a default value.** If something fails, the caller must know. Let the error propagate so upstream can act on it.
-- **Catch only specific error types** and only when there is a genuine recovery path — not to hide the failure.
-- Valid patterns:
-  - Using a cleanup/ensure block to release resources while still letting the error propagate.
-  - Catching a specific error to add context then re-raising.
-  - Catching in a CLI entrypoint to print a clean message and exit nonzero.
-- Invalid patterns:
-  - Catching an error and returning a default — hides the failure from the caller.
-  - Catching the base exception type — too broad.
-  - Catching an error and silently discarding it.
+- **Crash on the unexpected.** If something fails that shouldn't fail, crash. Do not log a warning and continue. A warning nobody reads is a silently corrupted state — and corrupted state is always worse than a crash. You can't always tell at write-time which failures are security-sensitive and which are harmless — many small seemingly-innocent fallbacks compound into real vulnerabilities. Treat every unexpected failure as critical.
+- **Never catch to continue normally.** Catching an error and returning a default value, logging a warning, or silently discarding the error are all the same thing: hiding the failure. The caller proceeds as if nothing happened, and the bug goes undetected until it causes real damage.
+- **Catch only when you can genuinely recover** — and recovery means the program is in a known-good state, not just "it didn't throw."
+  - Catch specific expected errors by type (e.g. `ENOENT` when reading a config file that may not exist). Let everything else propagate — programming errors, permission issues, malformed data.
+  - Prefer catching over check-then-act. Testing `existsSync` then reading is a race condition; catching the expected `ENOENT` is safer. But catch *only* that error — re-raise anything unexpected.
+  - In JavaScript, always type catch variables as `unknown`. JS allows throwing anything — strings, numbers, null. Use `instanceof` checks to narrow before accessing properties. Never assume `.message` exists.
+  - **Validate all parsed external input with a schema library (e.g. zod).** The result of `JSON.parse` or YAML parsing is `unknown` — never cast it to a typed interface without validation. Unvalidated JSON enables prototype pollution, type confusion, and other injection attacks. Schema validation is the boundary between untrusted data and trusted types.
+  - Valid recovery:
+    - Releasing resources in a cleanup block, then re-raising the error.
+    - Catching a specific error to add context (file path, operation name), then re-raising.
+    - Catching an expected error type (e.g. file-not-found) and returning a sensible default for that specific case.
+    - Catching in a top-level entrypoint (CLI handler, test runner) to print a message and exit nonzero.
+  - Invalid patterns — no exceptions:
+    - `catch (e) { console.error(e); }` — the error is swallowed, execution continues.
+    - `catch (e) { return defaultConfig; }` — the caller has no idea the config was malformed.
+    - `catch { // ignore }` — the error is silently discarded.
+    - `catch (e)` with the base exception type — too broad, catches programming errors that should crash.
+    - `JSON.parse(data) as MyConfig` — no validation, trusts external input.
 
 ## Documentation
 

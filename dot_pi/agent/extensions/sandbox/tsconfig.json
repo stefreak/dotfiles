@@ -1,0 +1,24 @@
+{
+	"compilerOptions": {
+		"strict": true,
+		"noEmit": true,
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"target": "esnext",
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"esModuleInterop": true,
+		"outDir": "dist",
+		"types": ["node"],
+		"paths": {
+			"@earendil-works/pi-coding-agent": [
+				"/Users/stefreak/.nvm/versions/node/v24.11.1/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"
+			],
+			"typebox": [
+				"/Users/stefreak/.nvm/versions/node/v24.11.1/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/typebox/build/typebox.d.mts"
+			]
+		}
+	},
+	"include": ["*.ts"],
+	"exclude": ["node_modules", "dist"]
+}
