@@ -42,17 +42,6 @@ export const DEFAULT_RUNTIME_CONFIG: SandboxRuntimeConfig = {
 	},
 };
 
-/**
- * Only sandboxed mode uses the OS sandbox.
- * Ask and yolo run without OS-level restrictions.
- */
-export function getRuntimeConfigForMode(
-	mode: SandboxMode,
-): SandboxRuntimeConfig | null {
-	if (mode === "sandboxed") return DEFAULT_RUNTIME_CONFIG;
-	return null;
-}
-
 export const ALL_TOOLS = new Set(["bash", "write", "edit", "read"]);
 export const WRITE_TOOLS = new Set(["write", "edit"]);
 

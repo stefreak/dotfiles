@@ -35,7 +35,6 @@ import {
 	CONFIRM_ALLOW,
 	CONFIRM_OPTIONS,
 	DEFAULT_RUNTIME_CONFIG,
-	getRuntimeConfigForMode,
 	modeStatusText,
 	type SandboxMode,
 	sandboxFooterBrief,
@@ -183,11 +182,8 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const runtimeConfig = getRuntimeConfigForMode(mode);
-			if (!runtimeConfig) return;
-
 			try {
-				await SandboxManager.initialize(runtimeConfig);
+				await SandboxManager.initialize(DEFAULT_RUNTIME_CONFIG);
 				sandboxInitialized = true;
 			} catch (err) {
 				ctx.ui.notify(
