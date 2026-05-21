@@ -76,33 +76,6 @@ export const CONFIRM_ALLOW = CONFIRM_OPTIONS[0];
 export const CONFIRM_DENY = CONFIRM_OPTIONS[1];
 
 /**
- * Format an edit tool's input as a unified diff.
- */
-export function formatEditDiff(input: {
-	edits?: Array<{ oldText?: string; newText?: string }>;
-}): string {
-	const edits = input.edits ?? [];
-	const hunks: string[] = [];
-	for (const edit of edits) {
-		const oldText = edit.oldText ?? "";
-		const newText = edit.newText ?? "";
-		const lines: string[] = [];
-		if (oldText !== "") {
-			for (const line of oldText.split("\n")) {
-				lines.push(`- ${line}`);
-			}
-		}
-		if (newText !== "") {
-			for (const line of newText.split("\n")) {
-				lines.push(`+ ${line}`);
-			}
-		}
-		hunks.push(lines.join("\n"));
-	}
-	return hunks.join("\n\n");
-}
-
-/**
  * Check whether a tool requires user confirmation in the given mode.
  * Ask mode: confirm all tools. Other modes: no confirmation.
  */

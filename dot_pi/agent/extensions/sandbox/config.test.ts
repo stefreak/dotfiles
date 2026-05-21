@@ -6,7 +6,6 @@ import {
 	CONFIRM_ALLOW,
 	CONFIRM_DENY,
 	CONFIRM_OPTIONS,
-	formatEditDiff,
 	modeStatusText,
 	sandboxFooterBrief,
 	sandboxFooterFull,
@@ -140,107 +139,6 @@ describe("select dialog options", () => {
 			expect(typeof opt).toBe("string");
 			expect(opt).not.toContain("[object");
 		}
-	});
-});
-
-// ---------------------------------------------------------------------------
-// formatEditDiff
-// ---------------------------------------------------------------------------
-
-describe("formatEditDiff", () => {
-	it("shows removal", () => {
-		expect(
-			formatEditDiff({
-				edits: [{ oldText: "foo", newText: "" }],
-			}),
-		).toMatchInlineSnapshot(`"- foo"`);
-	});
-
-	it("shows addition", () => {
-		expect(
-			formatEditDiff({
-				edits: [{ oldText: "", newText: "bar" }],
-			}),
-		).toMatchInlineSnapshot(`"+ bar"`);
-	});
-
-	it("shows change", () => {
-		expect(
-			formatEditDiff({
-				edits: [{ oldText: "old", newText: "new" }],
-			}),
-		).toMatchInlineSnapshot(`
-			"- old
-			+ new"
-		`);
-	});
-
-	it("shows unchanged lines with context", () => {
-		expect(
-			formatEditDiff({
-				edits: [{ oldText: "keep\nchange", newText: "keep\nchanged" }],
-			}),
-		).toMatchInlineSnapshot(`
-			"- keep
-			- change
-			+ keep
-			+ changed"
-		`);
-	});
-
-	it("truncates after 10 lines with summary", () => {
-		const lines = Array.from({ length: 20 }, (_, i) => `line ${i}`);
-		expect(
-			formatEditDiff({
-				edits: [{ oldText: lines.join("\n"), newText: "" }],
-			}),
-		).toMatchInlineSnapshot(`
-			"- line 0
-			- line 1
-			- line 2
-			- line 3
-			- line 4
-			- line 5
-			- line 6
-			- line 7
-			- line 8
-			- line 9
-			- line 10
-			- line 11
-			- line 12
-			- line 13
-			- line 14
-			- line 15
-			- line 16
-			- line 17
-			- line 18
-			- line 19"
-		`);
-	});
-
-	it("handles multiple edits separated by blank line", () => {
-		expect(
-			formatEditDiff({
-				edits: [
-					{ oldText: "a", newText: "b" },
-					{ oldText: "c", newText: "d" },
-				],
-			}),
-		).toMatchInlineSnapshot(`
-			"- a
-			+ b
-
-			- c
-			+ d"
-		`);
-	});
-
-	it("handles empty edits array", () => {
-		expect(formatEditDiff({ edits: [] })).toMatchInlineSnapshot(`""`);
-	});
-
-	it("handles missing edits", () => {
-		expect(formatEditDiff({})).toMatchInlineSnapshot(`""`);
 	});
 });
 

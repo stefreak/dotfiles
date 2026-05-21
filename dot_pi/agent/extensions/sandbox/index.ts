@@ -35,7 +35,6 @@ import {
 	CONFIRM_ALLOW,
 	CONFIRM_OPTIONS,
 	DEFAULT_RUNTIME_CONFIG,
-	formatEditDiff,
 	getRuntimeConfigForMode,
 	modeStatusText,
 	type SandboxMode,
@@ -327,21 +326,6 @@ export default function (pi: ExtensionAPI) {
 			event.toolName,
 			event.input as Record<string, unknown>,
 		);
-
-		// Show diff preview for edit tool calls
-		if (event.toolName === "edit") {
-			const diff = formatEditDiff(
-				event.input as {
-					edits?: Array<{ oldText?: string; newText?: string }>;
-				},
-			);
-			const diffLines = diff.split("\n").length;
-			const truncatedDiff =
-				diff.length > 500
-					? `${diff.slice(0, 500)}\n... (${diffLines} total lines)`
-					: diff;
-			ctx.ui.notify(`${label}: ${detail}\n${truncatedDiff}`, "info");
-		}
 
 		const choice = await ctx.ui.select(`${label}: ${detail}`, [
 			...CONFIRM_OPTIONS,
