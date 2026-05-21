@@ -1,3 +1,4 @@
+{{- /* Look up the z.ai API key from macOS Keyring. The secret is optional — if it's not set, the template renders an empty JSON object, and the z.ai provider simply won't be configured. stderr is suppressed and errors are swallowed intentionally so that `chezmoi apply` succeeds on machines where the secret hasn't been configured. */ -}}
 {{- $zai := output "sh" "-c" "chezmoi secret keyring get --service=zai --user=api 2>/dev/null || true" -}}
 {
 {{- if $zai }}

@@ -15,8 +15,7 @@
 		]
 	},
 	"dependencies": {
-		"@anthropic-ai/sandbox-runtime": "^0.0.26",
-		"zod": "^4.4.3"
+		"@anthropic-ai/sandbox-runtime": "^0.0.26"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",

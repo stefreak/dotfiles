@@ -163,11 +163,7 @@ export default function (pi: ExtensionAPI) {
 	) {
 		// Tear down existing sandbox
 		if (sandboxInitialized) {
-			try {
-				await SandboxManager.reset();
-			} catch {
-				// Ignore
-			}
+			await SandboxManager.reset();
 			sandboxInitialized = false;
 		}
 
@@ -233,11 +229,9 @@ export default function (pi: ExtensionAPI) {
 				return localBash.execute(id, params, signal, onUpdate);
 			}
 
-			// YOLO mode: no sandbox, no questions
+			// YOLO mode: no sandbox, no questions. askOutsideSandbox is
+			// meaningless here (no sandbox to escape), so ignore it.
 			if (currentMode === "yolo") {
-				if (params.askOutsideSandbox) {
-					return localBash.execute(id, params, signal, onUpdate);
-				}
 				return localBash.execute(id, params, signal, onUpdate);
 			}
 
@@ -394,11 +388,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		if (sandboxInitialized) {
-			try {
-				await SandboxManager.reset();
-			} catch {
-				// Ignore cleanup errors
-			}
+			await SandboxManager.reset();
 			sandboxInitialized = false;
 		}
 	});
