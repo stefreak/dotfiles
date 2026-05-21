@@ -9,20 +9,7 @@ Web search and content extraction using the official Brave Search API. No browse
 
 ## Setup
 
-Requires a Brave Search API account with a free subscription. A credit card is required to create the free subscription (you won't be charged).
-
-1. Create an account at https://api-dashboard.search.brave.com/register
-2. Create a "Free AI" subscription
-3. Create an API key for the subscription
-4. Add to your shell profile (`~/.profile` or `~/.zprofile` for zsh):
-   ```bash
-   export BRAVE_API_KEY="your-api-key-here"
-   ```
-5. Install dependencies (run once):
-   ```bash
-   cd {baseDir}
-   npm install
-   ```
+See README for API key setup.
 
 ## Important: Direct Execution Required
 

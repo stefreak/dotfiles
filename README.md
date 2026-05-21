@@ -28,6 +28,16 @@ chezmoi secret keyring set --service=zai --user=api            # optional, for z
 chezmoi apply
 ```
 
+### Brave Search API key
+
+Requires a free subscription (credit card needed to create it, you won't be charged).
+
+1. Create an account at https://api-dashboard.search.brave.com/register
+2. Create a "Free AI" subscription
+3. Create an API key for the subscription
+4. Store it in macOS Keyring: `chezmoi secret keyring set --service=brave-search --user=api`
+5. Run `chezmoi apply` to write the `.env` file
+
 ## Chezmoi day-to-day
 
 ```sh

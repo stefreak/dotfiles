@@ -7,13 +7,6 @@ description: Fetch transcripts from YouTube videos for summarization and analysi
 
 Fetch transcripts from YouTube videos.
 
-## Setup
-
-```bash
-cd {baseDir}
-npm install
-```
-
 ## Usage
 
 ```bash
