@@ -1,0 +1,505 @@
+/**
+ * Sandbox Extension - OS-level sandboxing for bash commands
+ *
+ * Uses @anthropic-ai/sandbox-runtime to enforce filesystem and network
+ * restrictions on bash commands at the OS level (sandbox-exec on macOS,
+ * bubblewrap on Linux).
+ *
+ * Three sandbox modes (cycle with Shift+Tab):
+ * - **ask** — confirm write/edit with the user. Bash runs in read-only sandbox.
+ *   If bash hits sandbox restrictions, re-run with askOutsideSandbox: true to
+ *   request user permission to run outside the sandbox.
+ * - **sandboxed** — OS-level enforcement with interactive escape hatch.
+ *   Write/edit work freely within sandbox boundaries.
+ *   If a command hits sandbox restrictions (EACCES, network denied), re-run
+ *   with askOutsideSandbox: true to request user permission to run outside the sandbox.
+ * - **yolo** — no restrictions, no questions. Sandbox disabled entirely.
+ *   askOutsideSandbox is auto-approved.
+ *
+ * Config files (merged, project takes precedence):
+ * - ~/.pi/agent/extensions/sandbox.json (global)
+ * - <cwd>/.pi/sandbox.json (project-local)
+ *
+ * Example .pi/sandbox.json:
+ * ```json
+ * {
+ *   "mode": "sandboxed",
+ *   "network": {
+ *     "allowedDomains": ["github.com", "*.github.com"],
+ *     "deniedDomains": []
+ *   },
+ *   "filesystem": {
+ *     "denyRead": ["~/.ssh", "~/.aws"],
+ *     "allowWrite": [".", "/tmp"],
+ *     "denyWrite": [".env"]
+ *   }
+ * }
+ * ```
+ *
+ * Usage:
+ * - `Shift+Tab` — cycle through ask → sandboxed → yolo → ask
+ * - `/sandbox` — show current mode and configuration
+ * - `/sandbox ask|sandboxed|yolo` — switch mode directly
+ * - `--no-sandbox` flag — force yolo mode at startup
+ *
+ * Setup:
+ * 1. Copy sandbox/ directory to ~/.pi/agent/extensions/
+ * 2. Run `npm install` in ~/.pi/agent/extensions/sandbox/
+ *
+ * Linux also requires: bubblewrap, socat, ripgrep
+ */
+
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type BashOperations, createBashTool, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import {
+	type SandboxMode,
+	type SandboxConfig,
+	DEFAULT_CONFIG,
+	loadConfigFromPaths,
+	getSandboxRuntimeConfigForMode,
+	shouldConfirmTool,
+	modeStatusText,
+	formatEditDiff,
+	BYPASS_OPTIONS,
+	BYPASS_ALLOW,
+	BYPASS_DENY,
+	CONFIRM_OPTIONS,
+	CONFIRM_ALLOW,
+	CONFIRM_DENY,
+} from "./config.js";
+import { join } from "node:path";
+
+function loadConfig(cwd: string): SandboxConfig {
+	const globalConfigPath = join(getAgentDir(), "extensions", "sandbox.json");
+	const projectConfigPath = join(cwd, ".pi", "sandbox.json");
+	return loadConfigFromPaths(globalConfigPath, projectConfigPath);
+}
+
+function createSandboxedBashOps(): { ops: BashOperations; wasBlocked: () => boolean } {
+	let blocked = false;
+
+	const ops: BashOperations = {
+		async exec(command, cwd, { onData, signal, timeout }) {
+			if (!existsSync(cwd)) {
+				throw new Error(`Working directory does not exist: ${cwd}`);
+			}
+
+			blocked = false;
+			const wrappedCommand = await SandboxManager.wrapWithSandbox(command);
+
+			return new Promise((resolve, reject) => {
+				const child = spawn("bash", ["-c", wrappedCommand], {
+					cwd,
+					detached: true,
+					stdio: ["ignore", "pipe", "pipe"],
+				});
+
+				let timedOut = false;
+				let timeoutHandle: NodeJS.Timeout | undefined;
+
+				if (timeout !== undefined && timeout > 0) {
+					timeoutHandle = setTimeout(() => {
+						timedOut = true;
+						if (child.pid) {
+							try {
+								process.kill(-child.pid, "SIGKILL");
+							} catch {
+								child.kill("SIGKILL");
+							}
+						}
+					}, timeout * 1000);
+				}
+
+				let output = "";
+				child.stdout?.on("data", (data: Buffer) => {
+					output += data.toString();
+					onData(data);
+				});
+				child.stderr?.on("data", (data: Buffer) => {
+					output += data.toString();
+					onData(data);
+				});
+
+				child.on("error", (err) => {
+					if (timeoutHandle) clearTimeout(timeoutHandle);
+					reject(err);
+				});
+
+				const onAbort = () => {
+					if (child.pid) {
+						try {
+							process.kill(-child.pid, "SIGKILL");
+						} catch {
+							child.kill("SIGKILL");
+						}
+					}
+				};
+
+				signal?.addEventListener("abort", onAbort, { once: true });
+
+				child.on("close", (code) => {
+					if (timeoutHandle) clearTimeout(timeoutHandle);
+					signal?.removeEventListener("abort", onAbort);
+
+					if (signal?.aborted) {
+						reject(new Error("aborted"));
+					} else if (timedOut) {
+						reject(new Error(`timeout:${timeout}`));
+					} else {
+						blocked = output.includes("Connection blocked by network allowlist")
+							|| output.includes("Permission denied")
+							|| output.includes("Operation not permitted");
+						resolve({ exitCode: code });
+					}
+				});
+			});
+		},
+	};
+
+	return { ops, wasBlocked: () => blocked };
+}
+
+const MODES: SandboxMode[] = ["ask", "sandboxed", "yolo"];
+
+function nextMode(current: SandboxMode): SandboxMode {
+	const idx = MODES.indexOf(current);
+	return MODES[(idx + 1) % MODES.length];
+}
+
+export default function (pi: ExtensionAPI) {
+	pi.registerFlag("no-sandbox", {
+		description: "Disable OS-level sandboxing (forces yolo mode)",
+		type: "boolean",
+		default: false,
+	});
+
+	const localCwd = process.cwd();
+	const localBash = createBashTool(localCwd);
+
+	let currentMode: SandboxMode = "sandboxed";
+	let sandboxInitialized = false;
+
+	const sandboxedParams = Type.Object({
+		command: Type.String({ description: "Bash command to execute" }),
+		timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+		askOutsideSandbox: Type.Optional(
+			Type.Boolean({
+				description:
+					"Set to true to request user permission to run this command outside the sandbox.",
+			}),
+		),
+	});
+
+	// --- Tool descriptions per mode ---
+
+	const BASH_DESCRIPTION = "Execute a bash command in the current sandbox mode.";
+
+	// --- Switch mode (shared logic for shortcut and command) ---
+
+	async function switchMode(mode: SandboxMode, cwd: string, ctx: { ui: { setStatus: (key: string, text: string) => void; notify: (msg: string, level: string) => void } }) {
+		if (mode === "yolo") {
+			currentMode = "yolo";
+			if (sandboxInitialized) {
+				try {
+					await SandboxManager.reset();
+				} catch {
+					// Ignore
+				}
+				sandboxInitialized = false;
+			}
+			ctx.ui.setStatus("sandbox", "🚀 YOLO mode: no restrictions (/sandbox)");
+			ctx.ui.notify("YOLO mode — no restrictions", "info");
+			return;
+		}
+
+		const platform = process.platform;
+		if (platform !== "darwin" && platform !== "linux") {
+			ctx.ui.notify(`Sandbox not supported on ${platform}, cannot enable ${mode} mode`, "error");
+			return;
+		}
+
+		// Tear down existing sandbox
+		if (sandboxInitialized) {
+			try {
+				await SandboxManager.reset();
+			} catch {
+				// Ignore
+			}
+			sandboxInitialized = false;
+		}
+
+		const config = loadConfig(cwd);
+		const runtimeConfig = getSandboxRuntimeConfigForMode(mode, config);
+		if (!runtimeConfig) return;
+
+		try {
+			await SandboxManager.initialize(runtimeConfig);
+			currentMode = mode;
+			sandboxInitialized = true;
+			ctx.ui.setStatus("sandbox", modeStatusText(currentMode, config));
+			ctx.ui.notify(`${currentMode} mode`, "info");
+		} catch (err) {
+			ctx.ui.notify(`Failed to initialize sandbox: ${err instanceof Error ? err.message : err}`, "error");
+		}
+	}
+
+	// --- Register the sandboxed bash tool ---
+
+	pi.registerTool({
+		...localBash,
+		name: "bash",
+		label: "bash (sandboxed)",
+		description: BASH_DESCRIPTION,
+		parameters: sandboxedParams,
+
+		async execute(id, params, signal, onUpdate, ctx) {
+			// YOLO mode: no restrictions, no questions — auto-approve everything
+			if (currentMode === "yolo") {
+				if (params.askOutsideSandbox) {
+					// Auto-approve bypass in yolo mode
+					return localBash.execute(id, params, signal, onUpdate);
+				}
+				return localBash.execute(id, params, signal, onUpdate);
+			}
+
+			// ask or sandboxed mode: ask the user for bypass approval
+			if (params.askOutsideSandbox) {
+				const choice = await ctx.ui.select(
+					"Sandbox bypass requested",
+					[...BYPASS_OPTIONS],
+				);
+
+				if (choice === BYPASS_ALLOW) {
+					return localBash.execute(id, params, signal, onUpdate);
+				}
+
+				const feedback = await ctx.ui.input("Why deny?", "Explain why or suggest an alternative...");
+				const reason = feedback
+					? `Sandbox bypass denied. Feedback: ${feedback}`
+					: "Sandbox bypass denied.";
+
+				throw new Error(reason);
+			}
+
+			// Sandboxed execution
+			if (!sandboxInitialized) {
+				return localBash.execute(id, params, signal, onUpdate);
+			}
+
+			const { ops, wasBlocked } = createSandboxedBashOps();
+			const sandboxedBash = createBashTool(localCwd, { operations: ops });
+			const result = await sandboxedBash.execute(id, params, signal, onUpdate);
+
+			// Append sandbox notice if the command was blocked
+			if (wasBlocked()) {
+				const config = loadConfig(ctx.cwd);
+				ctx.ui.notify(`Sandbox restriction detected. Use /sandbox to see config or switch modes.`, "warning");
+				return {
+					...result,
+					content: [...(result.content ?? []), { type: "text", text: sandboxNotice(config) }],
+				};
+			}
+
+			return result;
+		},
+	});
+
+	// --- Confirm every tool in ask mode ---
+
+	function formatToolInput(toolName: string, input: any): string {
+		if (toolName === "bash") return input.command ?? "(no command)";
+		if (toolName === "write") return `${input.path ?? "?"} (${(input.content ?? "").length} chars)`;
+		if (toolName === "read") return input.path ?? "?";
+		if (toolName === "edit") return input.path ?? "?";
+		return JSON.stringify(input);
+	}
+
+	function toolCallLabel(toolName: string): string {
+		switch (toolName) {
+			case "bash": return "Bash command";
+			case "edit": return "File edit";
+			case "write": return "File write";
+			case "read": return "File read";
+			case "grep": return "Search";
+			case "find": return "Find files";
+			case "ls": return "List directory";
+			default: return toolName;
+		}
+	}
+
+	pi.on("tool_call", async (event, ctx) => {
+		if (!shouldConfirmTool(currentMode, event.toolName)) return;
+
+		const label = toolCallLabel(event.toolName);
+		const detail = formatToolInput(event.toolName, event.input);
+
+		// Show diff preview for edit tool calls
+		if (event.toolName === "edit") {
+			const diff = formatEditDiff(event.input);
+			const diffLines = diff.split("\n").length;
+			const truncatedDiff = diff.length > 500 ? diff.slice(0, 500) + `\n... (${diffLines} total lines)` : diff;
+			ctx.ui.notify(`${label}: ${detail}\n${truncatedDiff}`, "info");
+		}
+
+		const choice = await ctx.ui.select(
+			`${label}: ${detail}`,
+			[...CONFIRM_OPTIONS],
+		);
+
+		if (choice === CONFIRM_ALLOW) return; // proceed with execution
+
+		const feedback = await ctx.ui.input(`Why deny ${label.toLowerCase()}?`, "Explain why or suggest an alternative...");
+		const reason = feedback
+			? `${label} denied. Feedback: ${feedback}`
+			: `${label} denied.`;
+
+		return { block: true, reason };
+	});
+
+	// --- User bash events ---
+
+	pi.on("user_bash", () => {
+		if (currentMode === "yolo" || !sandboxInitialized) return;
+		return { operations: createSandboxedBashOps().ops };
+	});
+
+	// --- Append sandbox context on bash failures ---
+
+	function sandboxNotice(config: SandboxConfig): string {
+		const lines = [
+			"",
+			"--- SANDBOX ---",
+			`Mode: ${currentMode}`,
+		];
+
+		if (currentMode === "ask") {
+			lines.push("Every write requires user confirmation");
+		} else if (currentMode === "sandboxed") {
+			const allowedDomains = config.network?.allowedDomains?.join(", ") || "(none)";
+			const deniedDomains = config.network?.deniedDomains?.join(", ") || "(none)";
+			const denyRead = config.filesystem?.denyRead?.join(", ") || "(none)";
+			const allowWrite = config.filesystem?.allowWrite?.join(", ") || "(none)";
+			const denyWrite = config.filesystem?.denyWrite?.join(", ") || "(none)";
+			lines.push(
+				`Network allowed: ${allowedDomains}`,
+				`Network denied: ${deniedDomains}`,
+				`Filesystem deny read: ${denyRead}`,
+				`Filesystem allow write: ${allowWrite}`,
+				`Filesystem deny write: ${denyWrite}`,
+			);
+		}
+
+		lines.push(
+			"",
+			"If this failure was caused by sandbox restrictions, re-run with askOutsideSandbox: true.",
+			"This prompts the user for approval. Do not ask the user first — just set the flag and re-run.",
+			"--- END SANDBOX ---",
+		);
+
+		return lines.join("\n");
+	}
+
+	// --- Session lifecycle ---
+
+	pi.on("session_start", async (_event, ctx) => {
+		const noSandbox = pi.getFlag("no-sandbox") as boolean;
+
+		if (noSandbox) {
+			currentMode = "yolo";
+			ctx.ui.setStatus("sandbox", "🚀 YOLO mode: no restrictions --no-sandbox (/sandbox)");
+			ctx.ui.notify("Sandbox disabled via --no-sandbox (yolo mode)", "warning");
+			return;
+		}
+
+		const config = loadConfig(ctx.cwd);
+
+		if (!config.enabled) {
+			currentMode = "yolo";
+			ctx.ui.setStatus("sandbox", "🚀 YOLO mode: no restrictions — disabled in config (/sandbox)");
+			ctx.ui.notify("Sandbox disabled via config (yolo mode)", "info");
+			return;
+		}
+
+		const platform = process.platform;
+		if (platform !== "darwin" && platform !== "linux") {
+			currentMode = "yolo";
+			ctx.ui.setStatus("sandbox", `🚀 YOLO mode: not supported on ${platform} (/sandbox)`);
+			ctx.ui.notify(`Sandbox not supported on ${platform} (yolo mode)`, "warning");
+			return;
+		}
+
+		const mode = config.mode ?? "sandboxed";
+		await switchMode(mode, ctx.cwd, ctx);
+	});
+
+	pi.on("session_shutdown", async () => {
+		if (sandboxInitialized) {
+			try {
+				await SandboxManager.reset();
+			} catch {
+				// Ignore cleanup errors
+			}
+			sandboxInitialized = false;
+		}
+	});
+
+	// --- Shift+Tab to cycle modes ---
+
+	pi.registerShortcut("shift+tab", {
+		description: "Cycle sandbox mode (ask → sandboxed → yolo)",
+		handler: async (ctx) => {
+			const target = nextMode(currentMode);
+			await switchMode(target, ctx.cwd, ctx);
+		},
+	});
+
+	// --- /sandbox command ---
+
+	pi.registerCommand("sandbox", {
+		description: "Show or change sandbox mode (ask | sandboxed | yolo)",
+		handler: async (args, ctx) => {
+			const trimmed = (args ?? "").trim();
+
+			// Switch mode
+			if (trimmed === "ask" || trimmed === "sandboxed" || trimmed === "yolo") {
+				await switchMode(trimmed, ctx.cwd, ctx);
+				return;
+			}
+
+			// Show status
+			const config = loadConfig(ctx.cwd);
+			const lines = [
+				`Mode: ${currentMode}`,
+				`Status: ${modeStatusText(currentMode, config)}`,
+				"",
+				"Available modes:",
+				"  ask       — confirm writes, bash runs in read-only sandbox",
+				"  sandboxed — play within boundaries: OS-level enforcement with escape hatch",
+				"  yolo      — no restrictions, no questions",
+				"",
+				"Usage: /sandbox <ask|sandboxed|yolo>",
+				"Shortcut: Shift+Tab to cycle modes",
+			];
+
+			lines.push(
+				"",
+				"Current configuration:",
+				"",
+				"Network:",
+				`  Allowed: ${config.network?.allowedDomains?.join(", ") || "(none)"}`,
+				`  Denied: ${config.network?.deniedDomains?.join(", ") || "(none)"}`,
+				"",
+				"Filesystem:",
+				`  Deny Read: ${config.filesystem?.denyRead?.join(", ") || "(none)"}`,
+				`  Allow Write: ${config.filesystem?.allowWrite?.join(", ") || "(none)"}`,
+				`  Deny Write: ${config.filesystem?.denyWrite?.join(", ") || "(none)"}`,
+			);
+
+			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+}

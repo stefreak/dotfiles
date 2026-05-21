@@ -1,0 +1,23 @@
+{
+	"name": "pi-extension-sandbox",
+	"private": true,
+	"version": "1.5.3",
+	"type": "module",
+	"scripts": {
+		"clean": "echo 'nothing to clean'",
+		"build": "echo 'nothing to build'",
+		"check": "echo 'nothing to check'",
+		"test": "node --import tsx/esm --test config.test.ts"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"dependencies": {
+		"@anthropic-ai/sandbox-runtime": "^0.0.26"
+	},
+	"devDependencies": {
+		"tsx": "^4.22.3"
+	}
+}
