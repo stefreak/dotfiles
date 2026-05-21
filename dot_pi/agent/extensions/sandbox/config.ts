@@ -3,37 +3,11 @@
  * Extracted for testability.
  */
 
-import { readFileSync } from "node:fs";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import { z } from "zod";
 
 export type SandboxMode = "ask" | "sandboxed" | "yolo";
 
-export const SandboxConfigSchema = z.object({
-	enabled: z.boolean().optional(),
-	mode: z.enum(["ask", "sandboxed", "yolo"]).optional(),
-	network: z
-		.object({
-			allowedDomains: z.array(z.string()).optional(),
-			deniedDomains: z.array(z.string()).optional(),
-		})
-		.optional(),
-	filesystem: z
-		.object({
-			denyRead: z.array(z.string()).optional(),
-			allowWrite: z.array(z.string()).optional(),
-			denyWrite: z.array(z.string()).optional(),
-		})
-		.optional(),
-	ignoreViolations: z.record(z.string(), z.array(z.string())).optional(),
-	enableWeakerNestedSandbox: z.boolean().optional(),
-});
-
-export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;
-
-export const DEFAULT_CONFIG: SandboxConfig = {
-	enabled: true,
-	mode: "sandboxed",
+export const DEFAULT_RUNTIME_CONFIG: SandboxRuntimeConfig = {
 	network: {
 		allowedDomains: [
 			"npmjs.org",
@@ -68,130 +42,17 @@ export const DEFAULT_CONFIG: SandboxConfig = {
 	},
 };
 
-/**
- * Deep merge sandbox config. Project overrides global overrides defaults.
- */
-export function deepMerge(
-	base: SandboxConfig,
-	overrides: Partial<SandboxConfig>,
-): SandboxConfig {
-	const result: SandboxConfig = { ...base };
-
-	if (overrides.enabled !== undefined) result.enabled = overrides.enabled;
-	if (overrides.mode !== undefined) result.mode = overrides.mode;
-	if (overrides.network) {
-		result.network = { ...(base.network ?? {}), ...overrides.network };
-	}
-	if (overrides.filesystem) {
-		result.filesystem = { ...(base.filesystem ?? {}), ...overrides.filesystem };
-	}
-	if (overrides.ignoreViolations) {
-		result.ignoreViolations = overrides.ignoreViolations;
-	}
-	if (overrides.enableWeakerNestedSandbox !== undefined) {
-		result.enableWeakerNestedSandbox = overrides.enableWeakerNestedSandbox;
-	}
-
-	return result;
-}
-
-export class ConfigParseError extends Error {
-	constructor(
-		public readonly path: string,
-		public readonly cause: unknown,
-	) {
-		const msg = cause instanceof Error ? cause.message : String(cause);
-		super(`Failed to parse config file ${path}: ${msg}`);
-		this.name = "ConfigParseError";
-	}
-}
-
-export function parseConfigFile(filePath: string): Partial<SandboxConfig> {
-	let raw: unknown;
-	try {
-		raw = JSON.parse(readFileSync(filePath, "utf-8"));
-	} catch (e: unknown) {
-		if (
-			e instanceof Error &&
-			"code" in e &&
-			(e as NodeJS.ErrnoException).code === "ENOENT"
-		) {
-			return {};
-		}
-		throw new ConfigParseError(filePath, e);
-	}
-
-	const parsed = SandboxConfigSchema.safeParse(raw);
-	if (!parsed.success) {
-		throw new ConfigParseError(filePath, parsed.error);
-	}
-	return parsed.data;
-}
-
-/**
- * Load and merge config from global and project paths.
- * Both paths are optional — if a file doesn't exist, it's skipped.
- * Throws ConfigParseError if a file exists but contains invalid JSON.
- */
-export function loadConfigFromPaths(
-	globalConfigPath: string,
-	projectConfigPath: string,
-): SandboxConfig {
-	const globalConfig = parseConfigFile(globalConfigPath);
-	const projectConfig = parseConfigFile(projectConfigPath);
-	return deepMerge(deepMerge(DEFAULT_CONFIG, globalConfig), projectConfig);
-}
-
-/**
- * Build the sandbox runtime config for a given mode.
- * Returns null for yolo mode (no sandbox needed).
- */
-export function getSandboxRuntimeConfigForMode(
+export function getRuntimeConfigForMode(
 	mode: SandboxMode,
-	config: SandboxConfig,
-):
-	| (SandboxRuntimeConfig & {
-			ignoreViolations?: Record<string, string[]>;
-			enableWeakerNestedSandbox?: boolean;
-	  })
-	| null {
+): SandboxRuntimeConfig | null {
 	if (mode === "yolo") return null;
-
-	const network = config.network ?? { allowedDomains: [], deniedDomains: [] };
-
-	const sandboxConfig: SandboxRuntimeConfig & {
-		ignoreViolations?: Record<string, string[]>;
-		enableWeakerNestedSandbox?: boolean;
-	} = {
-		network: { allowedDomains: [], deniedDomains: [] },
-		filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
-	};
-
-	sandboxConfig.network = {
-		allowedDomains: network.allowedDomains ?? [],
-		deniedDomains: network.deniedDomains ?? [],
-	};
 	if (mode === "ask") {
-		sandboxConfig.filesystem = { denyRead: [], allowWrite: [], denyWrite: [] };
-	} else {
-		const fs = config.filesystem ?? {
-			denyRead: [],
-			allowWrite: [],
-			denyWrite: [],
-		};
-		sandboxConfig.filesystem = {
-			denyRead: fs.denyRead ?? [],
-			allowWrite: fs.allowWrite ?? [],
-			denyWrite: fs.denyWrite ?? [],
+		return {
+			network: DEFAULT_RUNTIME_CONFIG.network,
+			filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
 		};
 	}
-
-	if (config.ignoreViolations)
-		sandboxConfig.ignoreViolations = config.ignoreViolations;
-	if (config.enableWeakerNestedSandbox !== undefined)
-		sandboxConfig.enableWeakerNestedSandbox = config.enableWeakerNestedSandbox;
-
-	return sandboxConfig;
+	return DEFAULT_RUNTIME_CONFIG;
 }
 
 export const WRITE_TOOLS = new Set(["write", "edit"]);
@@ -282,24 +143,19 @@ export function sandboxFooter(): string {
 /**
  * Detailed sandbox info returned by the get_sandbox_info tool.
  */
-export function sandboxInfo(config: SandboxConfig): string {
-	const allowedDomains = config.network?.allowedDomains?.join(", ") || "(none)";
-	const deniedDomains = config.network?.deniedDomains?.join(", ") || "(none)";
-	const denyRead = config.filesystem?.denyRead?.join(", ") || "(none)";
-	const allowWrite = config.filesystem?.allowWrite?.join(", ") || "(none)";
-	const denyWrite = config.filesystem?.denyWrite?.join(", ") || "(none)";
-
+export function sandboxInfo(): string {
+	const cfg = DEFAULT_RUNTIME_CONFIG;
 	return [
 		"--- SANDBOX INFO ---",
 		"",
 		"Network:",
-		`  Allowed: ${allowedDomains}`,
-		`  Denied: ${deniedDomains}`,
+		`  Allowed: ${cfg.network.allowedDomains.join(", ")}`,
+		`  Denied: ${cfg.network.deniedDomains.join(", ") || "(none)"}`,
 		"",
 		"Filesystem:",
-		`  Deny read: ${denyRead}`,
-		`  Allow write: ${allowWrite}`,
-		`  Deny write: ${denyWrite}`,
+		`  Deny read: ${cfg.filesystem.denyRead.join(", ")}`,
+		`  Allow write: ${cfg.filesystem.allowWrite.join(", ")}`,
+		`  Deny write: ${cfg.filesystem.denyWrite.join(", ")}`,
 		"",
 		"If a command fails due to sandbox restrictions, re-run with askOutsideSandbox: true.",
 		"This prompts the user for approval to run outside the sandbox.",
@@ -311,17 +167,12 @@ export function sandboxInfo(config: SandboxConfig): string {
 /**
  * Human-readable status text for a mode.
  */
-export function modeStatusText(
-	mode: SandboxMode,
-	config: SandboxConfig,
-): string {
+export function modeStatusText(mode: SandboxMode): string {
 	switch (mode) {
 		case "ask":
 			return "🔐 Ask mode: confirm writes, read-only sandbox (/sandbox)";
-		case "sandboxed": {
-			const writeDirs = config.filesystem?.allowWrite?.join(", ") ?? ".";
-			return `🎪 Sandboxed mode: play within ${writeDirs} (/sandbox)`;
-		}
+		case "sandboxed":
+			return "🎪 Sandboxed mode: play within ., /tmp (/sandbox)";
 		case "yolo":
 			return "🚀 YOLO mode: no restrictions, no questions";
 	}

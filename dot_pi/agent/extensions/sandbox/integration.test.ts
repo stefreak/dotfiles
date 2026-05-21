@@ -17,9 +17,9 @@ import os from "node:os";
 import path from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "./config.js";
+import { DEFAULT_RUNTIME_CONFIG } from "./config.js";
 
-const DENY_WRITE = DEFAULT_CONFIG.filesystem?.denyWrite;
+const DENY_WRITE = DEFAULT_RUNTIME_CONFIG.filesystem?.denyWrite;
 let originalCwd: string;
 let testRoot: string;
 

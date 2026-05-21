@@ -51,7 +51,6 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type {
 	ExtensionAPI,
@@ -61,7 +60,6 @@ import type {
 import {
 	type BashOperations,
 	createBashTool,
-	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — typebox is a transitive dependency from the pi SDK
 import { Type } from "typebox";
@@ -70,22 +68,15 @@ import {
 	BYPASS_OPTIONS,
 	CONFIRM_ALLOW,
 	CONFIRM_OPTIONS,
+	DEFAULT_RUNTIME_CONFIG,
 	formatEditDiff,
-	getSandboxRuntimeConfigForMode,
-	loadConfigFromPaths,
+	getRuntimeConfigForMode,
 	modeStatusText,
-	type SandboxConfig,
 	type SandboxMode,
 	sandboxFooter,
 	sandboxInfo,
 	shouldConfirmTool,
 } from "./config.js";
-
-function loadConfig(cwd: string): SandboxConfig {
-	const globalConfigPath = join(getAgentDir(), "extensions", "sandbox.json");
-	const projectConfigPath = join(cwd, ".pi", "sandbox.json");
-	return loadConfigFromPaths(globalConfigPath, projectConfigPath);
-}
 
 function createSandboxedBashOps(): BashOperations {
 	return {
@@ -200,7 +191,7 @@ export default function (pi: ExtensionAPI) {
 
 	async function switchMode(
 		mode: SandboxMode,
-		cwd: string,
+		_cwd: string,
 		ctx: ExtensionContext | ExtensionCommandContext,
 	) {
 		if (mode === "yolo") {
@@ -237,15 +228,14 @@ export default function (pi: ExtensionAPI) {
 			sandboxInitialized = false;
 		}
 
-		const config = loadConfig(cwd);
-		const runtimeConfig = getSandboxRuntimeConfigForMode(mode, config);
+		const runtimeConfig = getRuntimeConfigForMode(mode);
 		if (!runtimeConfig) return;
 
 		try {
 			await SandboxManager.initialize(runtimeConfig);
 			currentMode = mode;
 			sandboxInitialized = true;
-			ctx.ui.setStatus("sandbox", modeStatusText(currentMode, config));
+			ctx.ui.setStatus("sandbox", modeStatusText(currentMode));
 			ctx.ui.notify(`${currentMode} mode`, "info");
 		} catch (err) {
 			ctx.ui.notify(
@@ -339,9 +329,8 @@ export default function (pi: ExtensionAPI) {
 					details: undefined,
 				};
 			}
-			const config = loadConfig(localCwd);
 			return {
-				content: [{ type: "text", text: sandboxInfo(config) }],
+				content: [{ type: "text", text: sandboxInfo() }],
 				details: undefined,
 			};
 		},
@@ -444,19 +433,6 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify("Sandbox disabled via --no-sandbox (yolo mode)", "warning");
 			return;
 		}
-
-		const config = loadConfig(ctx.cwd);
-
-		if (!config.enabled) {
-			currentMode = "yolo";
-			ctx.ui.setStatus(
-				"sandbox",
-				"🚀 YOLO mode: no restrictions — disabled in config (/sandbox)",
-			);
-			ctx.ui.notify("Sandbox disabled via config (yolo mode)", "info");
-			return;
-		}
-
 		const platform = process.platform;
 		if (platform !== "darwin" && platform !== "linux") {
 			currentMode = "yolo";
@@ -471,7 +447,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const mode = config.mode ?? "sandboxed";
+		const mode: SandboxMode = "sandboxed";
 		await switchMode(mode, ctx.cwd, ctx);
 	});
 
@@ -508,12 +484,10 @@ export default function (pi: ExtensionAPI) {
 				await switchMode(trimmed, ctx.cwd, ctx);
 				return;
 			}
-
 			// Show status
-			const config = loadConfig(ctx.cwd);
 			const lines = [
 				`Mode: ${currentMode}`,
-				`Status: ${modeStatusText(currentMode, config)}`,
+				`Status: ${modeStatusText(currentMode)}`,
 				"",
 				"Available modes:",
 				"  ask       — confirm writes, bash runs in read-only sandbox",
@@ -529,13 +503,13 @@ export default function (pi: ExtensionAPI) {
 				"Current configuration:",
 				"",
 				"Network:",
-				`  Allowed: ${config.network?.allowedDomains?.join(", ") || "(none)"}`,
-				`  Denied: ${config.network?.deniedDomains?.join(", ") || "(none)"}`,
+				`  Allowed: ${DEFAULT_RUNTIME_CONFIG.network.allowedDomains.join(", ")}`,
+				`  Denied: ${DEFAULT_RUNTIME_CONFIG.network.deniedDomains.join(", ") || "(none)"}`,
 				"",
 				"Filesystem:",
-				`  Deny Read: ${config.filesystem?.denyRead?.join(", ") || "(none)"}`,
-				`  Allow Write: ${config.filesystem?.allowWrite?.join(", ") || "(none)"}`,
-				`  Deny Write: ${config.filesystem?.denyWrite?.join(", ") || "(none)"}`,
+				`  Deny Read: ${DEFAULT_RUNTIME_CONFIG.filesystem.denyRead.join(", ")}`,
+				`  Allow Write: ${DEFAULT_RUNTIME_CONFIG.filesystem.allowWrite.join(", ")}`,
+				`  Deny Write: ${DEFAULT_RUNTIME_CONFIG.filesystem.denyWrite.join(", ")}`,
 			);
 
 			ctx.ui.notify(lines.join("\n"), "info");
