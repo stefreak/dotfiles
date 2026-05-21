@@ -1,11 +1,5 @@
 {
   "mcpServers": {
-    "kagi": {
-      "command": "{{ .chezmoi.homeDir }}/.mcporter/kagi/.venv/bin/kagimcp",
-      "env": {
-        "KAGI_API_KEY": "{{ keyring "kagi" "api" }}"
-      }
-    },
     "playwright": {
       "command": "npm",
       "args": ["exec", "--prefix", "{{ .chezmoi.homeDir }}/.mcporter/playwright", "@playwright/mcp"]

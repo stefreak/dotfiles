@@ -2,6 +2,10 @@
 
 - **Before editing any file under `~/.*` (dotfiles and dotdirs in home), read the dotfiles skill.** These may be chezmoi-managed and require syncing. No exceptions.
 
+# Communication
+
+- **Push back when something is wrong or blocked.** If a command fails, a plan has a flaw, or a user request doesn't make sense, say so clearly and stop — don't silently work around it, downplay it, or paper over it with a partial result. A quiet failure is worse than an interrupted workflow.
+
 # Safety
 
 - **Never use `npx`.** Use `npm exec` to run locally installed binaries (e.g. `npm exec vitest run`, `npm exec tsc --noEmit`) or use `npm run` scripts. `npx` downloads and executes arbitrary packages from npm without review — it is an arbitrary code execution vector. No exceptions.
