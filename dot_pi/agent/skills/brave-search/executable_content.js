@@ -81,6 +81,7 @@ try {
 		process.exit(1);
 	}
 } catch (e) {
-	console.error(`Error: ${e.message}`);
+	const msg = e instanceof Error ? e.message : String(e);
+	console.error(`Error: ${msg}`);
 	process.exit(1);
 }

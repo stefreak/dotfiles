@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # This script runs once during `chezmoi apply` to link pi skills to Gemini/Antigravity CLIs

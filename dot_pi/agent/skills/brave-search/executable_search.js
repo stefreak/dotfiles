@@ -18,7 +18,7 @@ if (!process.env.BRAVE_API_KEY) {
 			if (match) process.env[match[1]] = match[2];
 		}
 	} catch (e) {
-		if (e.code !== "ENOENT") throw e;
+		if (!(e instanceof Error) || !('code' in e) || e.code !== 'ENOENT') throw e;
 	}
 }
 
@@ -211,6 +211,7 @@ try {
 		console.log("");
 	}
 } catch (e) {
-	console.error(`Error: ${e.message}`);
+	const msg = e instanceof Error ? e.message : String(e);
+	console.error(`Error: ${msg}`);
 	process.exit(1);
 }

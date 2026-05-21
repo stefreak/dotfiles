@@ -27,8 +27,9 @@ try {
     const timestamp = formatTimestamp(entry.offset / 1000);
     console.log(`[${timestamp}] ${entry.text}`);
   }
-} catch (error) {
-  console.error('Error fetching transcript:', error.message);
+} catch (e) {
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error('Error fetching transcript:', msg);
   process.exit(1);
 }
 
