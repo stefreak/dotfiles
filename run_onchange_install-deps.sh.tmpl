@@ -1,0 +1,15 @@
+#!/bin/sh
+# pi sandbox extension
+# package.json hash: {{ include "dot_pi/agent/extensions/sandbox/package.json" | sha256sum }}
+# package-lock.json hash: {{ include "dot_pi/agent/extensions/sandbox/package-lock.json" | sha256sum }}
+npm ci --prefix "$HOME/.pi/agent/extensions/sandbox"
+
+# mcporter kagi
+# pyproject.toml hash: {{ include "dot_mcporter/kagi/pyproject.toml" | sha256sum }}
+# uv.lock hash: {{ include "dot_mcporter/kagi/uv.lock" | sha256sum }}
+uv sync --project "$HOME/.mcporter/kagi"
+
+# mcporter playwright
+# package.json hash: {{ include "dot_mcporter/playwright/package.json" | sha256sum }}
+# package-lock.json hash: {{ include "dot_mcporter/playwright/package-lock.json" | sha256sum }}
+npm ci --prefix "$HOME/.mcporter/playwright"

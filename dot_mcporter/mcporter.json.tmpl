@@ -1,15 +1,15 @@
 {
   "mcpServers": {
     "kagi": {
-      "command": "uvx",
-      "args": ["kagimcp"],
+      "command": "uv",
+      "args": ["run", "--project", "{{ .chezmoi.homeDir }}/.mcporter/kagi", "kagimcp"],
       "env": {
         "KAGI_API_KEY": "{{ keyring "kagi" "api" }}"
       }
     },
     "playwright": {
-      "command": "npx",
-      "args": ["@playwright/mcp@latest"]
+      "command": "npm",
+      "args": ["exec", "--prefix", "{{ .chezmoi.homeDir }}/.mcporter/playwright", "@playwright/mcp"]
     }
   }
 }
