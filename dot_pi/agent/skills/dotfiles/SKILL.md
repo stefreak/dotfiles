@@ -23,6 +23,10 @@ For **new dotfiles** that should be managed by chezmoi, create them directly in 
 
 Run `chezmoi status` to check for drift. If the live files have diverged from the source, **stop and inform the user** — do not layer new changes on top of unsynced ones.
 
+## Before Committing
+
+Always run `chezmoi status` and `chezmoi diff` before committing, to verify the expected changes. Show the output to the user as part of the commit plan.
+
 ## ⚠️ Always Ask First
 
 Before any `git commit` or `git push`, present a plan:
