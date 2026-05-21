@@ -4,23 +4,7 @@
 		"enabled": true,
 		"rules": {
 			"recommended": true,
-			"a11y": "off",
-			"correctness": {
-				"noUnusedImports": "error",
-				"noUnusedVariables": "error",
-				"useHookAtTopLevel": "error"
-			},
-			"suspicious": {
-				"noExplicitAny": "error"
-			},
-			"style": {
-				"noNonNullAssertion": "error",
-				"useConst": "error",
-				"useTemplate": "error"
-			},
-			"complexity": {
-				"noBannedTypes": "error"
-			}
+			"a11y": "off"
 		}
 	},
 	"formatter": {

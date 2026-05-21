@@ -74,10 +74,10 @@ import {
 	getSandboxRuntimeConfigForMode,
 	loadConfigFromPaths,
 	modeStatusText,
-	sandboxFooter,
-	sandboxInfo,
 	type SandboxConfig,
 	type SandboxMode,
+	sandboxFooter,
+	sandboxInfo,
 	shouldConfirmTool,
 } from "./config.js";
 
@@ -305,7 +305,12 @@ export default function (pi: ExtensionAPI) {
 			const footer = sandboxFooter();
 
 			try {
-				const result = await sandboxedBash.execute(id, params, signal, onUpdate);
+				const result = await sandboxedBash.execute(
+					id,
+					params,
+					signal,
+					onUpdate,
+				);
 				return {
 					...result,
 					content: [...(result.content ?? []), { type: "text", text: footer }],
@@ -324,7 +329,8 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "get_sandbox_info",
 		label: "get_sandbox_info",
-		description: "Get details about the active sandbox: which paths and domains are allowed or denied, and how to work around restrictions.",
+		description:
+			"Get details about the active sandbox: which paths and domains are allowed or denied, and how to work around restrictions.",
 		parameters: Type.Object({}),
 		async execute() {
 			if (currentMode === "yolo") {

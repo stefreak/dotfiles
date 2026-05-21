@@ -11,9 +11,9 @@ import {
 	formatEditDiff,
 	getSandboxRuntimeConfigForMode,
 	modeStatusText,
+	type SandboxConfig,
 	sandboxFooter,
 	sandboxInfo,
-	type SandboxConfig,
 	shouldConfirmTool,
 } from "./config.js";
 
@@ -125,7 +125,9 @@ describe("deepMerge", () => {
 	});
 
 	it("overrides enabled", () => {
-		expect(deepMerge(DEFAULT_CONFIG, { enabled: false })).toMatchInlineSnapshot(`
+		expect(
+			deepMerge(DEFAULT_CONFIG, { enabled: false }),
+		).toMatchInlineSnapshot(`
 			{
 			  "enabled": false,
 			  "filesystem": {
@@ -529,7 +531,9 @@ describe("getSandboxRuntimeConfigForMode", () => {
 			network: { allowedDomains: ["everything.com"], deniedDomains: [] },
 			filesystem: { denyRead: [], allowWrite: ["/"], denyWrite: [] },
 		};
-		expect(getSandboxRuntimeConfigForMode("ask", config)).toMatchInlineSnapshot(`
+		expect(
+			getSandboxRuntimeConfigForMode("ask", config),
+		).toMatchInlineSnapshot(`
 			{
 			  "filesystem": {
 			    "allowWrite": [],
@@ -783,7 +787,9 @@ describe("formatEditDiff", () => {
 
 describe("sandboxFooter", () => {
 	it("matches snapshot", () => {
-		expect(sandboxFooter()).toMatchInlineSnapshot(`"Filesystem and network restrictions are active. How to work in a sandbox: call get_sandbox_info"`);
+		expect(sandboxFooter()).toMatchInlineSnapshot(
+			`"Filesystem and network restrictions are active. How to work in a sandbox: call get_sandbox_info"`,
+		);
 	});
 });
 
