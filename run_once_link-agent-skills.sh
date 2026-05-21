@@ -11,10 +11,10 @@ fi
 
 if command -v gemini &> /dev/null; then
     echo "Linking skills to Gemini CLI..."
-    gemini skills link "$SKILLS_DIR" --scope user
+    gemini skills link "$SKILLS_DIR" --scope user --consent
 fi
 
 if command -v antigravity &> /dev/null; then
     echo "Linking skills to Antigravity CLI..."
-    antigravity skills link "$SKILLS_DIR" --scope user
+    antigravity skills link "$SKILLS_DIR" --scope user --consent
 fi
