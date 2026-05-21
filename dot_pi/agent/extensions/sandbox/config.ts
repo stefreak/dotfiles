@@ -42,24 +42,22 @@ export const DEFAULT_RUNTIME_CONFIG: SandboxRuntimeConfig = {
 	},
 };
 
+/**
+ * Only sandboxed mode uses the OS sandbox.
+ * Ask and yolo run without OS-level restrictions.
+ */
 export function getRuntimeConfigForMode(
 	mode: SandboxMode,
 ): SandboxRuntimeConfig | null {
-	if (mode === "yolo") return null;
-	if (mode === "ask") {
-		return {
-			network: DEFAULT_RUNTIME_CONFIG.network,
-			filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
-		};
-	}
-	return DEFAULT_RUNTIME_CONFIG;
+	if (mode === "sandboxed") return DEFAULT_RUNTIME_CONFIG;
+	return null;
 }
 
+export const ALL_TOOLS = new Set(["bash", "write", "edit", "read"]);
 export const WRITE_TOOLS = new Set(["write", "edit"]);
 
 /**
  * Select dialog options for sandbox bypass approval.
- * These are strings because ctx.ui.select() takes string[], not objects.
  */
 export const BYPASS_OPTIONS = [
 	"✅ Allow — run outside sandbox",
@@ -79,7 +77,6 @@ export const CONFIRM_DENY = CONFIRM_OPTIONS[1];
 
 /**
  * Format an edit tool's input as a diff-style summary.
- * Shows up to 10 lines per edit block with -/+ prefixes.
  */
 export function formatEditDiff(input: {
 	edits?: Array<{ oldText?: string; newText?: string }>;
@@ -121,46 +118,42 @@ export function formatEditDiff(input: {
 
 /**
  * Check whether a tool requires user confirmation in the given mode.
- * In ask mode, only write/edit tools need confirmation — bash runs
- * sandboxed (read-only) and escalates via askOutsideSandbox.
+ * Ask mode: confirm all tools. Other modes: no confirmation.
  */
 export function shouldConfirmTool(
 	mode: SandboxMode,
 	toolName: string,
 ): boolean {
 	if (mode !== "ask") return false;
-	return WRITE_TOOLS.has(toolName);
+	return ALL_TOOLS.has(toolName);
+}
+
+/** How often to repeat the full sandbox context. */
+export const SANDBOX_CONTEXT_INTERVAL = 50;
+
+/**
+ * Brief footer appended to every sandboxed bash result.
+ */
+export function sandboxFooterBrief(): string {
+	return "-- SANDBOX: ENABLED --";
 }
 
 /**
- * Brief sandbox footer appended to every sandboxed bash result.
- * One line — the LLM calls get_sandbox_info when it needs details.
+ * Full sandbox context appended every SANDBOX_CONTEXT_INTERVAL tool calls.
  */
-export function sandboxFooter(): string {
-	return "Filesystem and network restrictions are active. How to work in a sandbox: call get_sandbox_info";
-}
-
-/**
- * Detailed sandbox info returned by the get_sandbox_info tool.
- */
-export function sandboxInfo(): string {
+export function sandboxFooterFull(): string {
 	const cfg = DEFAULT_RUNTIME_CONFIG;
 	return [
-		"--- SANDBOX INFO ---",
-		"",
-		"Network:",
-		`  Allowed: ${cfg.network.allowedDomains.join(", ")}`,
-		`  Denied: ${cfg.network.deniedDomains.join(", ") || "(none)"}`,
-		"",
-		"Filesystem:",
-		`  Deny read: ${cfg.filesystem.denyRead.join(", ")}`,
-		`  Allow write: ${cfg.filesystem.allowWrite.join(", ")}`,
-		`  Deny write: ${cfg.filesystem.denyWrite.join(", ")}`,
+		"--- SANDBOX ---",
+		`Network allowed: ${cfg.network.allowedDomains.join(", ")}`,
+		`Network denied: ${cfg.network.deniedDomains.join(", ") || "(none)"}`,
+		`Filesystem deny read: ${cfg.filesystem.denyRead.join(", ")}`,
+		`Filesystem allow write: ${cfg.filesystem.allowWrite.join(", ")}`,
+		`Filesystem deny write: ${cfg.filesystem.denyWrite.join(", ")}`,
 		"",
 		"If a command fails due to sandbox restrictions, re-run with askOutsideSandbox: true.",
-		"This prompts the user for approval to run outside the sandbox.",
 		"Do not ask the user first — just set the flag and re-run.",
-		"--- END SANDBOX INFO ---",
+		"--- END SANDBOX ---",
 	].join("\n");
 }
 
@@ -170,9 +163,9 @@ export function sandboxInfo(): string {
 export function modeStatusText(mode: SandboxMode): string {
 	switch (mode) {
 		case "ask":
-			return "🔐 Ask mode: confirm writes, read-only sandbox (/sandbox)";
+			return "🔐 Ask mode: confirm every tool call, no sandbox (/sandbox)";
 		case "sandboxed":
-			return "🎪 Sandboxed mode: play within ., /tmp (/sandbox)";
+			return "🎪 Sandboxed mode: write to ., /tmp (/sandbox)";
 		case "yolo":
 			return "🚀 YOLO mode: no restrictions, no questions";
 	}

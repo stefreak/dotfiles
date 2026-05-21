@@ -8,8 +8,8 @@ import {
 	CONFIRM_OPTIONS,
 	formatEditDiff,
 	modeStatusText,
-	sandboxFooter,
-	sandboxInfo,
+	sandboxFooterBrief,
+	sandboxFooterFull,
 	shouldConfirmTool,
 } from "./config.js";
 
@@ -41,13 +41,13 @@ describe("shouldConfirmTool", () => {
 		expect(matrix).toMatchInlineSnapshot(`
 			{
 			  "ask": {
-			    "bash": false,
+			    "bash": true,
 			    "edit": true,
 			    "find": false,
 			    "grep": false,
 			    "ls": false,
 			    "my_custom_tool": false,
-			    "read": false,
+			    "read": true,
 			    "write": true,
 			  },
 			  "sandboxed": {
@@ -87,8 +87,8 @@ describe("modeStatusText", () => {
 			yolo: modeStatusText("yolo"),
 		}).toMatchInlineSnapshot(`
 			{
-			  "ask": "🔐 Ask mode: confirm writes, read-only sandbox (/sandbox)",
-			  "sandboxed": "🎪 Sandboxed mode: play within ., /tmp (/sandbox)",
+			  "ask": "🔐 Ask mode: confirm every tool call, no sandbox (/sandbox)",
+			  "sandboxed": "🎪 Sandboxed mode: write to ., /tmp (/sandbox)",
 			  "yolo": "🚀 YOLO mode: no restrictions, no questions",
 			}
 		`);
@@ -249,8 +249,8 @@ describe("formatEditDiff", () => {
 
 describe("sandboxFooter", () => {
 	it("matches snapshot", () => {
-		expect(sandboxFooter()).toMatchInlineSnapshot(
-			`"Filesystem and network restrictions are active. How to work in a sandbox: call get_sandbox_info"`,
+		expect(sandboxFooterBrief()).toMatchInlineSnapshot(
+			`"-- SANDBOX: ENABLED --"`,
 		);
 	});
 });
@@ -261,22 +261,17 @@ describe("sandboxFooter", () => {
 
 describe("sandboxInfo", () => {
 	it("matches snapshot", () => {
-		expect(sandboxInfo()).toMatchInlineSnapshot(`
-			"--- SANDBOX INFO ---
-
-			Network:
-			  Allowed: npmjs.org, *.npmjs.org, registry.npmjs.org, registry.yarnpkg.com, pypi.org, *.pypi.org, github.com, *.github.com, api.github.com, raw.githubusercontent.com, kagi.com, *.kagi.com
-			  Denied: (none)
-
-			Filesystem:
-			  Deny read: ~/.ssh, ~/.aws, ~/.gnupg
-			  Allow write: ., /tmp
-			  Deny write: .env, .env.*, *.pem, *.key, **/node_modules/**, **/vendor/**, **/__pycache__/**, **/.venv/**, **/.git/**
+		expect(sandboxFooterFull()).toMatchInlineSnapshot(`
+			"--- SANDBOX ---
+			Network allowed: npmjs.org, *.npmjs.org, registry.npmjs.org, registry.yarnpkg.com, pypi.org, *.pypi.org, github.com, *.github.com, api.github.com, raw.githubusercontent.com, kagi.com, *.kagi.com
+			Network denied: (none)
+			Filesystem deny read: ~/.ssh, ~/.aws, ~/.gnupg
+			Filesystem allow write: ., /tmp
+			Filesystem deny write: .env, .env.*, *.pem, *.key, **/node_modules/**, **/vendor/**, **/__pycache__/**, **/.venv/**, **/.git/**
 
 			If a command fails due to sandbox restrictions, re-run with askOutsideSandbox: true.
-			This prompts the user for approval to run outside the sandbox.
 			Do not ask the user first — just set the flag and re-run.
-			--- END SANDBOX INFO ---"
+			--- END SANDBOX ---"
 		`);
 	});
 });
