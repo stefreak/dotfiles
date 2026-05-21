@@ -527,17 +527,13 @@ wheels = [
 [[package]]
 name = "kagimcp"
 version = "1.0.0"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/stefreak/kagimcp?rev=feat%2Fproxy-support#21f953e85f3838c2e3ce19298abe6e4460340703" }
 dependencies = [
     { name = "fastmcp" },
     { name = "pydantic" },
     { name = "python-dateutil" },
     { name = "typing-extensions" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ed/8c/37bfec3c8f88e8e83a48a890216b04e069cde5b25ef325122ca230b2f949/kagimcp-1.0.0.tar.gz", hash = "sha256:62aecd33438bd7bafd3b4fd7bf524109eaabfd59fd66d8b5105bdd8e629b6a9c", size = 35158, upload-time = "2026-05-21T15:13:21.878Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/62/9a4f06201934e5a15d9c5d3b1fe09ca712239f6045f3baa47ed7833282cf/kagimcp-1.0.0-py3-none-any.whl", hash = "sha256:f390cd1f2677b4a43a8519d763cb96b7f77eab1dcb0f059bf6258f8a52cf578e", size = 82772, upload-time = "2026-05-21T15:13:20.847Z" },
+    { name = "urllib3", extra = ["socks"] },
 ]
 
 [[package]]
@@ -603,7 +599,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "kagimcp", specifier = "==1.0.0" }]
+requires-dist = [{ name = "kagimcp", git = "https://github.com/stefreak/kagimcp?rev=feat%2Fproxy-support" }]
 
 [[package]]
 name = "mdurl"
@@ -843,6 +839,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/52/d87eba7cb129b81563019d1679026e7a112ef76855d6159d24754dbd2a51/pyperclip-1.11.0.tar.gz", hash = "sha256:244035963e4428530d9e3a6101a1ef97209c6825edab1567beac148ccc1db1b6", size = 12185, upload-time = "2025-09-26T14:40:37.245Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/80/fc9d01d5ed37ba4c42ca2b55b4339ae6e200b456be3a1aaddf4a9fa99b8c/pyperclip-1.11.0-py3-none-any.whl", hash = "sha256:299403e9ff44581cb9ba2ffeed69c7aa96a008622ad0c46cb575ca75b5b84273", size = 11063, upload-time = "2025-09-26T14:40:36.069Z" },
+]
+
+[[package]]
+name = "pysocks"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/11/293dd436aea955d45fc4e8a35b6ae7270f5b8e00b53cf6c024c83b657a11/PySocks-1.7.1.tar.gz", hash = "sha256:3f8804571ebe159c380ac6de37643bb4685970655d3bba243530d6558b799aa0", size = 284429, upload-time = "2019-09-20T02:07:35.714Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/59/b4572118e098ac8e46e399a1dd0f2d85403ce8bbaad9ec79373ed6badaf9/PySocks-1.7.1-py3-none-any.whl", hash = "sha256:2725bd0a9925919b9b51739eea5f9e2bae91e83288108a9ad338b2e3a4435ee5", size = 16725, upload-time = "2019-09-20T02:06:22.938Z" },
 ]
 
 [[package]]
@@ -1152,6 +1157,11 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/53/0c/06f8b233b8fd13b9e5ee11424ef85419ba0d8ba0b3138bf360be2ff56953/urllib3-2.7.0.tar.gz", hash = "sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c", size = 433602, upload-time = "2026-05-07T16:13:18.596Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7f/3e/5db95bcf282c52709639744ca2a8b149baccf648e39c8cc87553df9eae0c/urllib3-2.7.0-py3-none-any.whl", hash = "sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897", size = 131087, upload-time = "2026-05-07T16:13:17.151Z" },
+]
+
+[package.optional-dependencies]
+socks = [
+    { name = "pysocks" },
 ]
 
 [[package]]
