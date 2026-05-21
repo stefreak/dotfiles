@@ -23,7 +23,51 @@ import {
 
 describe("DEFAULT_CONFIG", () => {
 	it("matches snapshot", () => {
-		expect(DEFAULT_CONFIG).toMatchSnapshot();
+		expect(DEFAULT_CONFIG).toMatchInlineSnapshot(`
+			{
+			  "enabled": true,
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "mode": "sandboxed",
+			  "network": {
+			    "allowedDomains": [
+			      "npmjs.org",
+			      "*.npmjs.org",
+			      "registry.npmjs.org",
+			      "registry.yarnpkg.com",
+			      "pypi.org",
+			      "*.pypi.org",
+			      "github.com",
+			      "*.github.com",
+			      "api.github.com",
+			      "raw.githubusercontent.com",
+			      "kagi.com",
+			      "*.kagi.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 });
 
@@ -33,15 +77,147 @@ describe("DEFAULT_CONFIG", () => {
 
 describe("deepMerge", () => {
 	it("returns base when overrides are empty", () => {
-		expect(deepMerge(DEFAULT_CONFIG, {})).toMatchSnapshot();
+		expect(deepMerge(DEFAULT_CONFIG, {})).toMatchInlineSnapshot(`
+			{
+			  "enabled": true,
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "mode": "sandboxed",
+			  "network": {
+			    "allowedDomains": [
+			      "npmjs.org",
+			      "*.npmjs.org",
+			      "registry.npmjs.org",
+			      "registry.yarnpkg.com",
+			      "pypi.org",
+			      "*.pypi.org",
+			      "github.com",
+			      "*.github.com",
+			      "api.github.com",
+			      "raw.githubusercontent.com",
+			      "kagi.com",
+			      "*.kagi.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 
 	it("overrides enabled", () => {
-		expect(deepMerge(DEFAULT_CONFIG, { enabled: false })).toMatchSnapshot();
+		expect(deepMerge(DEFAULT_CONFIG, { enabled: false })).toMatchInlineSnapshot(`
+			{
+			  "enabled": false,
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "mode": "sandboxed",
+			  "network": {
+			    "allowedDomains": [
+			      "npmjs.org",
+			      "*.npmjs.org",
+			      "registry.npmjs.org",
+			      "registry.yarnpkg.com",
+			      "pypi.org",
+			      "*.pypi.org",
+			      "github.com",
+			      "*.github.com",
+			      "api.github.com",
+			      "raw.githubusercontent.com",
+			      "kagi.com",
+			      "*.kagi.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 
 	it("overrides mode", () => {
-		expect(deepMerge(DEFAULT_CONFIG, { mode: "ask" })).toMatchSnapshot();
+		expect(deepMerge(DEFAULT_CONFIG, { mode: "ask" })).toMatchInlineSnapshot(`
+			{
+			  "enabled": true,
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "mode": "ask",
+			  "network": {
+			    "allowedDomains": [
+			      "npmjs.org",
+			      "*.npmjs.org",
+			      "registry.npmjs.org",
+			      "registry.yarnpkg.com",
+			      "pypi.org",
+			      "*.pypi.org",
+			      "github.com",
+			      "*.github.com",
+			      "api.github.com",
+			      "raw.githubusercontent.com",
+			      "kagi.com",
+			      "*.kagi.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 
 	it("merges network (shallow)", () => {
@@ -52,7 +228,42 @@ describe("deepMerge", () => {
 					deniedDomains: ["evil.com"],
 				},
 			}),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			{
+			  "enabled": true,
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "mode": "sandboxed",
+			  "network": {
+			    "allowedDomains": [
+			      "custom.com",
+			    ],
+			    "deniedDomains": [
+			      "evil.com",
+			    ],
+			  },
+			}
+		`);
 	});
 
 	it("merges filesystem (shallow)", () => {
@@ -64,7 +275,40 @@ describe("deepMerge", () => {
 					denyWrite: ["*.key"],
 				},
 			}),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			{
+			  "enabled": true,
+			  "filesystem": {
+			    "allowWrite": [
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "/secret",
+			    ],
+			    "denyWrite": [
+			      "*.key",
+			    ],
+			  },
+			  "mode": "sandboxed",
+			  "network": {
+			    "allowedDomains": [
+			      "npmjs.org",
+			      "*.npmjs.org",
+			      "registry.npmjs.org",
+			      "registry.yarnpkg.com",
+			      "pypi.org",
+			      "*.pypi.org",
+			      "github.com",
+			      "*.github.com",
+			      "api.github.com",
+			      "raw.githubusercontent.com",
+			      "kagi.com",
+			      "*.kagi.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 
 	it("does not mutate base", () => {
@@ -93,13 +337,80 @@ describe("getSandboxRuntimeConfigForMode", () => {
 	it("returns locked-down filesystem for ask mode", () => {
 		expect(
 			getSandboxRuntimeConfigForMode("ask", DEFAULT_CONFIG),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			{
+			  "filesystem": {
+			    "allowWrite": [],
+			    "denyRead": [],
+			    "denyWrite": [],
+			  },
+			  "network": {
+			    "allowedDomains": [
+			      "npmjs.org",
+			      "*.npmjs.org",
+			      "registry.npmjs.org",
+			      "registry.yarnpkg.com",
+			      "pypi.org",
+			      "*.pypi.org",
+			      "github.com",
+			      "*.github.com",
+			      "api.github.com",
+			      "raw.githubusercontent.com",
+			      "kagi.com",
+			      "*.kagi.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 
 	it("returns config values for sandboxed mode", () => {
 		expect(
 			getSandboxRuntimeConfigForMode("sandboxed", DEFAULT_CONFIG),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			{
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "network": {
+			    "allowedDomains": [
+			      "npmjs.org",
+			      "*.npmjs.org",
+			      "registry.npmjs.org",
+			      "registry.yarnpkg.com",
+			      "pypi.org",
+			      "*.pypi.org",
+			      "github.com",
+			      "*.github.com",
+			      "api.github.com",
+			      "raw.githubusercontent.com",
+			      "kagi.com",
+			      "*.kagi.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 
 	it("preserves ignoreViolations from config", () => {
@@ -109,7 +420,54 @@ describe("getSandboxRuntimeConfigForMode", () => {
 		};
 		expect(
 			getSandboxRuntimeConfigForMode("sandboxed", config),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			{
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "ignoreViolations": {
+			    "bash": [
+			      "~/.ssh",
+			    ],
+			  },
+			  "network": {
+			    "allowedDomains": [
+			      "npmjs.org",
+			      "*.npmjs.org",
+			      "registry.npmjs.org",
+			      "registry.yarnpkg.com",
+			      "pypi.org",
+			      "*.pypi.org",
+			      "github.com",
+			      "*.github.com",
+			      "api.github.com",
+			      "raw.githubusercontent.com",
+			      "kagi.com",
+			      "*.kagi.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 
 	it("preserves enableWeakerNestedSandbox from config", () => {
@@ -119,7 +477,50 @@ describe("getSandboxRuntimeConfigForMode", () => {
 		};
 		expect(
 			getSandboxRuntimeConfigForMode("sandboxed", config),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			{
+			  "enableWeakerNestedSandbox": true,
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "network": {
+			    "allowedDomains": [
+			      "npmjs.org",
+			      "*.npmjs.org",
+			      "registry.npmjs.org",
+			      "registry.yarnpkg.com",
+			      "pypi.org",
+			      "*.pypi.org",
+			      "github.com",
+			      "*.github.com",
+			      "api.github.com",
+			      "raw.githubusercontent.com",
+			      "kagi.com",
+			      "*.kagi.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 
 	it("ask mode locks down filesystem but uses config network", () => {
@@ -128,7 +529,21 @@ describe("getSandboxRuntimeConfigForMode", () => {
 			network: { allowedDomains: ["everything.com"], deniedDomains: [] },
 			filesystem: { denyRead: [], allowWrite: ["/"], denyWrite: [] },
 		};
-		expect(getSandboxRuntimeConfigForMode("ask", config)).toMatchSnapshot();
+		expect(getSandboxRuntimeConfigForMode("ask", config)).toMatchInlineSnapshot(`
+			{
+			  "filesystem": {
+			    "allowWrite": [],
+			    "denyRead": [],
+			    "denyWrite": [],
+			  },
+			  "network": {
+			    "allowedDomains": [
+			      "everything.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
 	});
 });
 
@@ -157,7 +572,40 @@ describe("shouldConfirmTool", () => {
 				matrix[mode][tool] = shouldConfirmTool(mode, tool);
 			}
 		}
-		expect(matrix).toMatchSnapshot();
+		expect(matrix).toMatchInlineSnapshot(`
+			{
+			  "ask": {
+			    "bash": false,
+			    "edit": true,
+			    "find": false,
+			    "grep": false,
+			    "ls": false,
+			    "my_custom_tool": false,
+			    "read": false,
+			    "write": true,
+			  },
+			  "sandboxed": {
+			    "bash": false,
+			    "edit": false,
+			    "find": false,
+			    "grep": false,
+			    "ls": false,
+			    "my_custom_tool": false,
+			    "read": false,
+			    "write": false,
+			  },
+			  "yolo": {
+			    "bash": false,
+			    "edit": false,
+			    "find": false,
+			    "grep": false,
+			    "ls": false,
+			    "my_custom_tool": false,
+			    "read": false,
+			    "write": false,
+			  },
+			}
+		`);
 	});
 });
 
@@ -171,7 +619,13 @@ describe("modeStatusText", () => {
 			ask: modeStatusText("ask", DEFAULT_CONFIG),
 			sandboxed: modeStatusText("sandboxed", DEFAULT_CONFIG),
 			yolo: modeStatusText("yolo", DEFAULT_CONFIG),
-		}).toMatchSnapshot();
+		}).toMatchInlineSnapshot(`
+			{
+			  "ask": "🔐 Ask mode: confirm writes, read-only sandbox (/sandbox)",
+			  "sandboxed": "🎪 Sandboxed mode: play within ., /tmp (/sandbox)",
+			  "yolo": "🚀 YOLO mode: no restrictions, no questions",
+			}
+		`);
 	});
 });
 
@@ -185,7 +639,16 @@ describe("select dialog options", () => {
 			options: [...BYPASS_OPTIONS],
 			allow: BYPASS_ALLOW,
 			deny: BYPASS_DENY,
-		}).toMatchSnapshot();
+		}).toMatchInlineSnapshot(`
+			{
+			  "allow": "✅ Allow — run outside sandbox",
+			  "deny": "❌ Deny",
+			  "options": [
+			    "✅ Allow — run outside sandbox",
+			    "❌ Deny",
+			  ],
+			}
+		`);
 	});
 
 	it("CONFIRM_OPTIONS matches snapshot", () => {
@@ -193,7 +656,16 @@ describe("select dialog options", () => {
 			options: [...CONFIRM_OPTIONS],
 			allow: CONFIRM_ALLOW,
 			deny: CONFIRM_DENY,
-		}).toMatchSnapshot();
+		}).toMatchInlineSnapshot(`
+			{
+			  "allow": "✅ Allow",
+			  "deny": "❌ Deny",
+			  "options": [
+			    "✅ Allow",
+			    "❌ Deny",
+			  ],
+			}
+		`);
 	});
 
 	it("all options are strings (not [object Object])", () => {
@@ -214,7 +686,10 @@ describe("formatEditDiff", () => {
 			formatEditDiff({
 				edits: [{ oldText: "foo", newText: "" }],
 			}),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			"- foo
+			"
+		`);
 	});
 
 	it("shows addition", () => {
@@ -222,7 +697,10 @@ describe("formatEditDiff", () => {
 			formatEditDiff({
 				edits: [{ oldText: "", newText: "bar" }],
 			}),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			"+ bar
+			"
+		`);
 	});
 
 	it("shows change", () => {
@@ -230,7 +708,11 @@ describe("formatEditDiff", () => {
 			formatEditDiff({
 				edits: [{ oldText: "old", newText: "new" }],
 			}),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			"- old
+			+ new
+			"
+		`);
 	});
 
 	it("shows unchanged lines with context", () => {
@@ -238,7 +720,12 @@ describe("formatEditDiff", () => {
 			formatEditDiff({
 				edits: [{ oldText: "keep\nchange", newText: "keep\nchanged" }],
 			}),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			"  keep
+			- change
+			+ changed
+			"
+		`);
 	});
 
 	it("truncates after 10 lines with summary", () => {
@@ -247,7 +734,20 @@ describe("formatEditDiff", () => {
 			formatEditDiff({
 				edits: [{ oldText: lines.join("\n"), newText: "" }],
 			}),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			"- line 0
+			- line 1
+			- line 2
+			- line 3
+			- line 4
+			- line 5
+			- line 6
+			- line 7
+			- line 8
+			- line 9
+			... (10 more lines)
+			"
+		`);
 	});
 
 	it("handles multiple edits separated by blank line", () => {
@@ -258,15 +758,22 @@ describe("formatEditDiff", () => {
 					{ oldText: "c", newText: "d" },
 				],
 			}),
-		).toMatchSnapshot();
+		).toMatchInlineSnapshot(`
+			"- a
+			+ b
+
+			- c
+			+ d
+			"
+		`);
 	});
 
 	it("handles empty edits array", () => {
-		expect(formatEditDiff({ edits: [] })).toMatchSnapshot();
+		expect(formatEditDiff({ edits: [] })).toMatchInlineSnapshot(`""`);
 	});
 
 	it("handles missing edits", () => {
-		expect(formatEditDiff({})).toMatchSnapshot();
+		expect(formatEditDiff({})).toMatchInlineSnapshot(`""`);
 	});
 });
 
@@ -276,15 +783,7 @@ describe("formatEditDiff", () => {
 
 describe("sandboxFooter", () => {
 	it("matches snapshot", () => {
-		expect(sandboxFooter()).toMatchSnapshot();
-	});
-
-	it("mentions get_sandbox_info", () => {
-		expect(sandboxFooter()).toContain("get_sandbox_info");
-	});
-
-	it("is one line", () => {
-		expect(sandboxFooter()).not.toContain("\n");
+		expect(sandboxFooter()).toMatchInlineSnapshot(`"Filesystem and network restrictions are active. How to work in a sandbox: call get_sandbox_info"`);
 	});
 });
 
@@ -294,6 +793,22 @@ describe("sandboxFooter", () => {
 
 describe("sandboxInfo", () => {
 	it("matches snapshot", () => {
-		expect(sandboxInfo(DEFAULT_CONFIG)).toMatchSnapshot();
+		expect(sandboxInfo(DEFAULT_CONFIG)).toMatchInlineSnapshot(`
+			"--- SANDBOX INFO ---
+
+			Network:
+			  Allowed: npmjs.org, *.npmjs.org, registry.npmjs.org, registry.yarnpkg.com, pypi.org, *.pypi.org, github.com, *.github.com, api.github.com, raw.githubusercontent.com, kagi.com, *.kagi.com
+			  Denied: (none)
+
+			Filesystem:
+			  Deny read: ~/.ssh, ~/.aws, ~/.gnupg
+			  Allow write: ., /tmp
+			  Deny write: .env, .env.*, *.pem, *.key, **/node_modules/**, **/vendor/**, **/__pycache__/**, **/.venv/**, **/.git/**
+
+			If a command fails due to sandbox restrictions, re-run with askOutsideSandbox: true.
+			This prompts the user for approval to run outside the sandbox.
+			Do not ask the user first — just set the flag and re-run.
+			--- END SANDBOX INFO ---"
+		`);
 	});
 });
