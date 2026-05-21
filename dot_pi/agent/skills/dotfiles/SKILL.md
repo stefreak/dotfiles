@@ -13,7 +13,14 @@ Dotfiles are managed via [chezmoi](https://www.chezmoi.io).
 
 ## Before Editing
 
-Before modifying any chezmoi-managed file, run `chezmoi diff` to check for uncommitted drift. If the diff is not clean, **stop and inform the user** — do not layer new changes on top of unsynced ones.
+Before modifying any chezmoi-managed file, run `chezmoi diff` and `chezmoi status` to check for drift. If there are differences, **stop and inform the user** — do not layer new changes on top of unsynced ones.
+
+## Status & Drift
+
+If `chezmoi status` shows differences (e.g., ` R install-packages.sh`), you must decide whether to apply or add:
+
+- **Apply from Source:** If the chezmoi source directory has been updated (e.g., after a `git pull`), run `chezmoi apply` to update the live files.
+- **⚠️ Avoid Data Loss:** If the live files were manually edited and those changes need to be persisted, **do not run `chezmoi apply`**, as it will overwrite and revert your edits. Use the **Sync Procedure** below to `chezmoi add` the changes first.
 
 ## When to Sync
 
