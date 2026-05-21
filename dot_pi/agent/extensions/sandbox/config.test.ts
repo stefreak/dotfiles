@@ -11,6 +11,8 @@ import {
 	formatEditDiff,
 	getSandboxRuntimeConfigForMode,
 	modeStatusText,
+	sandboxFooter,
+	sandboxInfo,
 	type SandboxConfig,
 	shouldConfirmTool,
 } from "./config.js";
@@ -265,5 +267,33 @@ describe("formatEditDiff", () => {
 
 	it("handles missing edits", () => {
 		expect(formatEditDiff({})).toMatchSnapshot();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// sandboxFooter
+// ---------------------------------------------------------------------------
+
+describe("sandboxFooter", () => {
+	it("matches snapshot", () => {
+		expect(sandboxFooter()).toMatchSnapshot();
+	});
+
+	it("mentions get_sandbox_info", () => {
+		expect(sandboxFooter()).toContain("get_sandbox_info");
+	});
+
+	it("is one line", () => {
+		expect(sandboxFooter()).not.toContain("\n");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// sandboxInfo
+// ---------------------------------------------------------------------------
+
+describe("sandboxInfo", () => {
+	it("matches snapshot", () => {
+		expect(sandboxInfo(DEFAULT_CONFIG)).toMatchSnapshot();
 	});
 });

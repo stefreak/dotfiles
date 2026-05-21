@@ -496,6 +496,26 @@ exports[`modeStatusText > matches snapshot for all modes 1`] = `
 }
 `;
 
+exports[`sandboxFooter > matches snapshot 1`] = `"Filesystem and network restrictions are active. How to work in a sandbox: call get_sandbox_info"`;
+
+exports[`sandboxInfo > matches snapshot 1`] = `
+"--- SANDBOX INFO ---
+
+Network:
+  Allowed: npmjs.org, *.npmjs.org, registry.npmjs.org, registry.yarnpkg.com, pypi.org, *.pypi.org, github.com, *.github.com, api.github.com, raw.githubusercontent.com, kagi.com, *.kagi.com
+  Denied: (none)
+
+Filesystem:
+  Deny read: ~/.ssh, ~/.aws, ~/.gnupg
+  Allow write: ., /tmp
+  Deny write: .env, .env.*, *.pem, *.key, **/node_modules/**, **/vendor/**, **/__pycache__/**, **/.venv/**, **/.git/**
+
+If a command fails due to sandbox restrictions, re-run with askOutsideSandbox: true.
+This prompts the user for approval to run outside the sandbox.
+Do not ask the user first — just set the flag and re-run.
+--- END SANDBOX INFO ---"
+`;
+
 exports[`select dialog options > BYPASS_OPTIONS matches snapshot 1`] = `
 {
   "allow": "✅ Allow — run outside sandbox",

@@ -42,7 +42,9 @@
 
 ## Testing
 
+- **Fix bugs test-first.** Before fixing a bug, write a test that reproduces it. Confirm the test fails. Then fix the bug. Confirm the test passes. No exceptions.
 - **Prefer snapshot tests over scattered assertions.** A single snapshot captures the full output and makes regressions obvious on review. Lots of `includes` / `matches` checks are fragile — they verify pieces but miss the whole.
+- **Never write snapshots manually.** Run the test runner with `--update` to generate them. Writing them by hand is just wasteful — the machine does it faster and correctly.
 - **Test against real behavior, not against mocks.** Don't stub out the thing you're trying to verify — exercise the real code path. If that's too slow or fragile, fix the design, not the test.
   - e.g. record and replay HTTP responses rather than patching the HTTP client.
   - e.g. write real helper scripts in a tempdir and invoke real shell commands, rather than parsing fixture strings.

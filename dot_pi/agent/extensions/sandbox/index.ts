@@ -74,6 +74,8 @@ import {
 	getSandboxRuntimeConfigForMode,
 	loadConfigFromPaths,
 	modeStatusText,
+	sandboxFooter,
+	sandboxInfo,
 	type SandboxConfig,
 	type SandboxMode,
 	shouldConfirmTool,
@@ -85,19 +87,13 @@ function loadConfig(cwd: string): SandboxConfig {
 	return loadConfigFromPaths(globalConfigPath, projectConfigPath);
 }
 
-function createSandboxedBashOps(): {
-	ops: BashOperations;
-	wasBlocked: () => boolean;
-} {
-	let blocked = false;
-
-	const ops: BashOperations = {
+function createSandboxedBashOps(): BashOperations {
+	return {
 		async exec(command, cwd, { onData, signal, timeout }) {
 			if (!existsSync(cwd)) {
 				throw new Error(`Working directory does not exist: ${cwd}`);
 			}
 
-			blocked = false;
 			const wrappedCommand = await SandboxManager.wrapWithSandbox(command);
 
 			return new Promise((resolve, reject) => {
@@ -123,15 +119,8 @@ function createSandboxedBashOps(): {
 					}, timeout * 1000);
 				}
 
-				let output = "";
-				child.stdout?.on("data", (data: Buffer) => {
-					output += data.toString();
-					onData(data);
-				});
-				child.stderr?.on("data", (data: Buffer) => {
-					output += data.toString();
-					onData(data);
-				});
+				child.stdout?.on("data", onData);
+				child.stderr?.on("data", onData);
 
 				child.on("error", (err) => {
 					if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -159,18 +148,12 @@ function createSandboxedBashOps(): {
 					} else if (timedOut) {
 						reject(new Error(`timeout:${timeout}`));
 					} else {
-						blocked =
-							output.includes("Connection blocked by network allowlist") ||
-							output.includes("Permission denied") ||
-							output.includes("Operation not permitted");
 						resolve({ exitCode: code });
 					}
 				});
 			});
 		},
 	};
-
-	return { ops, wasBlocked: () => blocked };
 }
 
 const MODES: SandboxMode[] = ["ask", "sandboxed", "yolo"];
@@ -312,32 +295,49 @@ export default function (pi: ExtensionAPI) {
 				throw new Error(reason);
 			}
 
-			// Sandboxed execution
+			// Sandboxed execution — always append footer so the LLM knows how to escalate
 			if (!sandboxInitialized) {
 				return localBash.execute(id, params, signal, onUpdate);
 			}
 
-			const { ops, wasBlocked } = createSandboxedBashOps();
+			const ops = createSandboxedBashOps();
 			const sandboxedBash = createBashTool(localCwd, { operations: ops });
-			const result = await sandboxedBash.execute(id, params, signal, onUpdate);
+			const footer = sandboxFooter();
 
-			// Append sandbox notice if the command was blocked
-			if (wasBlocked()) {
-				const config = loadConfig(ctx.cwd);
-				ctx.ui.notify(
-					`Sandbox restriction detected. Use /sandbox to see config or switch modes.`,
-					"warning",
-				);
+			try {
+				const result = await sandboxedBash.execute(id, params, signal, onUpdate);
 				return {
 					...result,
-					content: [
-						...(result.content ?? []),
-						{ type: "text", text: sandboxNotice(config) },
-					],
+					content: [...(result.content ?? []), { type: "text", text: footer }],
+				};
+			} catch (err) {
+				if (err instanceof Error) {
+					throw new Error(`${err.message}\n\n${footer}`);
+				}
+				throw err;
+			}
+		},
+	});
+
+	// --- get_sandbox_info tool ---
+
+	pi.registerTool({
+		name: "get_sandbox_info",
+		label: "get_sandbox_info",
+		description: "Get details about the active sandbox: which paths and domains are allowed or denied, and how to work around restrictions.",
+		parameters: Type.Object({}),
+		async execute() {
+			if (currentMode === "yolo") {
+				return {
+					content: [{ type: "text", text: "No sandbox is active." }],
+					details: undefined,
 				};
 			}
-
-			return result;
+			const config = loadConfig(localCwd);
+			return {
+				content: [{ type: "text", text: sandboxInfo(config) }],
+				details: undefined,
+			};
 		},
 	});
 
@@ -421,42 +421,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("user_bash", () => {
 		if (currentMode === "yolo" || !sandboxInitialized) return;
-		return { operations: createSandboxedBashOps().ops };
+		return { operations: createSandboxedBashOps() };
 	});
-
-	// --- Append sandbox context on bash failures ---
-
-	function sandboxNotice(config: SandboxConfig): string {
-		const lines = ["", "--- SANDBOX ---", `Mode: ${currentMode}`];
-
-		if (currentMode === "ask") {
-			lines.push("Every write requires user confirmation");
-		} else if (currentMode === "sandboxed") {
-			const allowedDomains =
-				config.network?.allowedDomains?.join(", ") || "(none)";
-			const deniedDomains =
-				config.network?.deniedDomains?.join(", ") || "(none)";
-			const denyRead = config.filesystem?.denyRead?.join(", ") || "(none)";
-			const allowWrite = config.filesystem?.allowWrite?.join(", ") || "(none)";
-			const denyWrite = config.filesystem?.denyWrite?.join(", ") || "(none)";
-			lines.push(
-				`Network allowed: ${allowedDomains}`,
-				`Network denied: ${deniedDomains}`,
-				`Filesystem deny read: ${denyRead}`,
-				`Filesystem allow write: ${allowWrite}`,
-				`Filesystem deny write: ${denyWrite}`,
-			);
-		}
-
-		lines.push(
-			"",
-			"If this failure was caused by sandbox restrictions, re-run with askOutsideSandbox: true.",
-			"This prompts the user for approval. Do not ask the user first — just set the flag and re-run.",
-			"--- END SANDBOX ---",
-		);
-
-		return lines.join("\n");
-	}
 
 	// --- Session lifecycle ---
 

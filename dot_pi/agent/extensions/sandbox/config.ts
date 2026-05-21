@@ -272,6 +272,43 @@ export function shouldConfirmTool(
 }
 
 /**
+ * Brief sandbox footer appended to every sandboxed bash result.
+ * One line — the LLM calls get_sandbox_info when it needs details.
+ */
+export function sandboxFooter(): string {
+	return "Filesystem and network restrictions are active. How to work in a sandbox: call get_sandbox_info";
+}
+
+/**
+ * Detailed sandbox info returned by the get_sandbox_info tool.
+ */
+export function sandboxInfo(config: SandboxConfig): string {
+	const allowedDomains = config.network?.allowedDomains?.join(", ") || "(none)";
+	const deniedDomains = config.network?.deniedDomains?.join(", ") || "(none)";
+	const denyRead = config.filesystem?.denyRead?.join(", ") || "(none)";
+	const allowWrite = config.filesystem?.allowWrite?.join(", ") || "(none)";
+	const denyWrite = config.filesystem?.denyWrite?.join(", ") || "(none)";
+
+	return [
+		"--- SANDBOX INFO ---",
+		"",
+		"Network:",
+		`  Allowed: ${allowedDomains}`,
+		`  Denied: ${deniedDomains}`,
+		"",
+		"Filesystem:",
+		`  Deny read: ${denyRead}`,
+		`  Allow write: ${allowWrite}`,
+		`  Deny write: ${denyWrite}`,
+		"",
+		"If a command fails due to sandbox restrictions, re-run with askOutsideSandbox: true.",
+		"This prompts the user for approval to run outside the sandbox.",
+		"Do not ask the user first — just set the flag and re-run.",
+		"--- END SANDBOX INFO ---",
+	].join("\n");
+}
+
+/**
  * Human-readable status text for a mode.
  */
 export function modeStatusText(
