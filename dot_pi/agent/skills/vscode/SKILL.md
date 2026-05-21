@@ -11,6 +11,10 @@ Tools for integrating with VS Code, primarily for viewing diffs.
 
 VS Code must be installed with the `code` CLI available in PATH.
 
+## Sandbox
+
+`code` is an external GUI application. It must be run outside the sandbox. Always use `askOutsideSandbox: true` when invoking `code` via bash.
+
 ## Opening a Diff
 
 Compare two files side by side in VS Code:

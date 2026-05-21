@@ -37,10 +37,12 @@ import {
 	DEFAULT_RUNTIME_CONFIG,
 	modeStatusText,
 	type SandboxMode,
+	SUPPORTED_PLATFORMS,
 	sandboxFooterBrief,
 	sandboxFooterFull,
 	shouldConfirmTool,
 	shouldShowFullFooter,
+	unsupportedFooter,
 } from "./config.js";
 
 function createSandboxedBashOps(): BashOperations {
@@ -131,6 +133,7 @@ export default function (pi: ExtensionAPI) {
 
 	let currentMode: SandboxMode = "sandboxed";
 	let sandboxInitialized = false;
+	let unsupportedPlatform: string | undefined;
 	let toolCallCount = 0;
 
 	const sandboxedParams = Type.Object({
@@ -166,11 +169,13 @@ export default function (pi: ExtensionAPI) {
 
 		currentMode = mode;
 		toolCallCount = 0;
+		unsupportedPlatform = undefined;
 
 		if (mode === "sandboxed") {
 			const platform = process.platform;
-			if (platform !== "darwin" && platform !== "linux") {
+			if (!SUPPORTED_PLATFORMS.has(platform)) {
 				currentMode = "yolo";
+				unsupportedPlatform = platform;
 				ctx.ui.setStatus(
 					"sandbox",
 					`🚀 YOLO mode: not supported on ${platform} (/sandbox)`,
@@ -186,11 +191,10 @@ export default function (pi: ExtensionAPI) {
 				await SandboxManager.initialize(DEFAULT_RUNTIME_CONFIG);
 				sandboxInitialized = true;
 			} catch (err) {
-				ctx.ui.notify(
-					`Failed to initialize sandbox: ${err instanceof Error ? err.message : err}`,
-					"error",
+				throw new Error(
+					`Failed to initialize sandbox on ${platform}: ${err instanceof Error ? err.message : err}. ` +
+						"Refusing to continue without sandbox. Fix the sandbox and restart.",
 				);
-				return;
 			}
 		}
 
@@ -225,7 +229,19 @@ export default function (pi: ExtensionAPI) {
 
 			// YOLO mode: no sandbox, no questions. askOutsideSandbox is
 			// meaningless here (no sandbox to escape), so ignore it.
+			// Attach unsupported footer if sandbox is unavailable on this platform.
 			if (currentMode === "yolo") {
+				if (unsupportedPlatform) {
+					const footer = unsupportedFooter(unsupportedPlatform);
+					const result = await localBash.execute(id, params, signal, onUpdate);
+					return {
+						...result,
+						content: [
+							...(result.content ?? []),
+							{ type: "text", text: footer },
+						],
+					};
+				}
 				return localBash.execute(id, params, signal, onUpdate);
 			}
 
@@ -250,9 +266,14 @@ export default function (pi: ExtensionAPI) {
 				throw new Error(reason);
 			}
 
-			// Sandboxed execution
+			// Sandboxed execution — crash if sandbox failed to initialize
+			// on a supported platform (this should never happen after the fix
+			// to switchMode, but belt-and-suspenders).
 			if (!sandboxInitialized) {
-				return localBash.execute(id, params, signal, onUpdate);
+				throw new Error(
+					"BUG: sandbox mode is active but sandbox is not initialized. " +
+						"Refusing to execute without sandbox.",
+				);
 			}
 
 			const ops = createSandboxedBashOps();

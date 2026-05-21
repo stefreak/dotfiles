@@ -19,7 +19,7 @@ import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RUNTIME_CONFIG } from "./config.js";
 
-const DENY_WRITE = DEFAULT_RUNTIME_CONFIG.filesystem?.denyWrite;
+const DENY_WRITE = DEFAULT_RUNTIME_CONFIG.filesystem.denyWrite;
 let originalCwd: string;
 let testRoot: string;
 

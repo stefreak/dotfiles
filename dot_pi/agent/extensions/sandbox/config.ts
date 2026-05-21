@@ -47,6 +47,11 @@ export const ALL_TOOLS = new Set(["bash", "write", "edit", "read"]);
 export const WRITE_TOOLS = new Set(["write", "edit"]);
 
 /**
+ * Supported platforms for OS-level sandboxing.
+ */
+export const SUPPORTED_PLATFORMS = new Set(["darwin", "linux"]);
+
+/**
  * Select dialog options for sandbox bypass approval.
  */
 export const BYPASS_OPTIONS = [
@@ -93,6 +98,13 @@ export function shouldShowFullFooter(callCount: number): boolean {
  */
 export function sandboxFooterBrief(): string {
 	return "-- SANDBOX: ENABLED --";
+}
+
+/**
+ * Footer for when the platform doesn't support sandboxing.
+ */
+export function unsupportedFooter(platform: string): string {
+	return `-- SANDBOX: NOT AVAILABLE (unsupported platform: ${platform}) --`;
 }
 
 /**
