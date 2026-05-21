@@ -1,8 +1,7 @@
 {
   "mcpServers": {
     "kagi": {
-      "command": "uv",
-      "args": ["run", "--project", "{{ .chezmoi.homeDir }}/.mcporter/kagi", "kagimcp"],
+      "command": "{{ .chezmoi.homeDir }}/.mcporter/kagi/.venv/bin/kagimcp",
       "env": {
         "KAGI_API_KEY": "{{ keyring "kagi" "api" }}"
       }
