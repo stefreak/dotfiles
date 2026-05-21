@@ -8,11 +8,13 @@ npm ci --prefix "$HOME/.pi/agent/extensions/sandbox"
 # package.json hash: {{ include "dot_pi/agent/skills/brave-search/package.json" | sha256sum }}
 # package-lock.json hash: {{ include "dot_pi/agent/skills/brave-search/package-lock.json" | sha256sum }}
 npm ci --prefix "$HOME/.pi/agent/skills/brave-search"
+chmod +x "$HOME/.pi/agent/skills/brave-search"/*.js
 
 # pi youtube-transcript skill
 # package.json hash: {{ include "dot_pi/agent/skills/youtube-transcript/package.json" | sha256sum }}
 # package-lock.json hash: {{ include "dot_pi/agent/skills/youtube-transcript/package-lock.json" | sha256sum }}
 npm ci --prefix "$HOME/.pi/agent/skills/youtube-transcript"
+chmod +x "$HOME/.pi/agent/skills/youtube-transcript"/*.js
 
 # mcporter playwright
 # package.json hash: {{ include "dot_mcporter/playwright/package.json" | sha256sum }}

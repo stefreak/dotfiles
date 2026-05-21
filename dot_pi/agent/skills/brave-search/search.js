@@ -4,6 +4,23 @@ import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
+
+// Load .env from skill directory if env var not already set
+if (!process.env.BRAVE_API_KEY) {
+	const envPath = join(dirname(fileURLToPath(import.meta.url)), ".env");
+	try {
+		const content = readFileSync(envPath, "utf-8");
+		for (const line of content.split("\n")) {
+			const match = line.match(/^([A-Z_]+)=(.+)$/);
+			if (match) process.env[match[1]] = match[2];
+		}
+	} catch (e) {
+		if (e.code !== "ENOENT") throw e;
+	}
+}
 
 const args = process.argv.slice(2);
 

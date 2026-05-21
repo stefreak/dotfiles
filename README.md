@@ -6,11 +6,11 @@ Managed by [chezmoi](https://www.chezmoi.io). Includes configuration for the **p
 
 ### Pi — AI Coding Agent
 
-[pi](https://github.com/earendil-works/pi-coding-agent) is a terminal-based AI coding agent. Config lives in `~/.pi/agent/` — agent instructions, model definitions, and skills (browser control, web search, dotfiles sync). API keys are templated from macOS Keyring.
+[pi](https://github.com/earendil-works/pi-coding-agent) is a terminal-based AI coding agent. Config lives in `~/.pi/agent/` — agent instructions, model definitions, and skills (browser control, web search, dotfiles sync). API keys are templated from the OS secret store (macOS Keyring).
 
 ### mcporter — MCP Tool Bridge
 
-[mcporter](https://github.com/nickthecook/mcporter) exposes MCP servers as CLI tools the agent can call. Config lives in `~/.mcporter/mcporter.json` and defines servers like Kagi and Playwright.
+[mcporter](https://github.com/nickthecook/mcporter) exposes MCP servers as CLI tools the agent can call. Config lives in `~/.mcporter/mcporter.json` and defines servers like Playwright.
 
 ## Setup on a new machine
 
@@ -23,8 +23,8 @@ chezmoi init --apply stefreak
 Then set secrets in macOS Keyring:
 
 ```sh
-chezmoi secret keyring set --service=kagi --user=api    # required for web search
-chezmoi secret keyring set --service=zai --user=api     # optional, for z.ai models
+chezmoi secret keyring set --service=brave-search --user=api  # required for web search
+chezmoi secret keyring set --service=zai --user=api            # optional, for z.ai models
 chezmoi apply
 ```
 
