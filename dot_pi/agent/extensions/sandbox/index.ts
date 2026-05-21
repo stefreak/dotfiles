@@ -28,7 +28,6 @@ import {
 	type BashOperations,
 	createBashTool,
 } from "@earendil-works/pi-coding-agent";
-// @ts-expect-error — typebox is a transitive dependency from the pi SDK
 import { Type } from "typebox";
 import {
 	BYPASS_ALLOW,
