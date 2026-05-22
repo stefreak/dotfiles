@@ -6,6 +6,8 @@ import {
 	CONFIRM_ALLOW,
 	CONFIRM_DENY,
 	CONFIRM_OPTIONS,
+	isReadRestricted,
+	isWriteRestricted,
 	modeStatusText,
 	sandboxFooterBrief,
 	sandboxFooterFull,
@@ -18,16 +20,7 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("shouldConfirmTool", () => {
-	const tools = [
-		"write",
-		"edit",
-		"read",
-		"bash",
-		"grep",
-		"find",
-		"ls",
-		"my_custom_tool",
-	] as const;
+	const tools = ["write", "edit", "read", "bash"] as const;
 	const modes = ["ask", "sandboxed", "yolo"] as const;
 
 	it("matches snapshot", () => {
@@ -43,35 +36,109 @@ describe("shouldConfirmTool", () => {
 			  "ask": {
 			    "bash": true,
 			    "edit": true,
-			    "find": false,
-			    "grep": false,
-			    "ls": false,
-			    "my_custom_tool": false,
 			    "read": true,
 			    "write": true,
 			  },
 			  "sandboxed": {
 			    "bash": false,
 			    "edit": false,
-			    "find": false,
-			    "grep": false,
-			    "ls": false,
-			    "my_custom_tool": false,
 			    "read": false,
 			    "write": false,
 			  },
 			  "yolo": {
 			    "bash": false,
 			    "edit": false,
-			    "find": false,
-			    "grep": false,
-			    "ls": false,
-			    "my_custom_tool": false,
 			    "read": false,
 			    "write": false,
 			  },
 			}
 		`);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Restrictions
+// ---------------------------------------------------------------------------
+
+describe("isReadRestricted", () => {
+	const home = "/home/user";
+
+	it("should allow regular files", () => {
+		expect(isReadRestricted("/tmp/foo", home)).toBe(false);
+		expect(isReadRestricted("/workspace/project/src/index.ts", home)).toBe(
+			false,
+		);
+	});
+
+	it("should deny restricted home dirs", () => {
+		expect(isReadRestricted("/home/user/.ssh/id_rsa", home)).toBe(true);
+		expect(isReadRestricted("/home/user/.ssh", home)).toBe(true);
+		expect(isReadRestricted("/home/user/.aws/config", home)).toBe(true);
+	});
+
+	it("should handle hidden files and complex paths", () => {
+		expect(isReadRestricted("/home/user/.ssh/../.ssh/id_rsa", home)).toBe(true);
+		expect(isReadRestricted("/home/user/.ssh/./id_rsa", home)).toBe(true);
+	});
+});
+
+describe("isWriteRestricted", () => {
+	const cwd = "/workspace/project";
+	const home = "/home/user";
+
+	it("should allow write to cwd", () => {
+		expect(isWriteRestricted("/workspace/project/file.ts", cwd, home)).toBe(
+			false,
+		);
+	});
+
+	it("should allow write to /tmp", () => {
+		expect(isWriteRestricted("/tmp/file.ts", cwd, home)).toBe(false);
+	});
+
+	it("should deny write outside allowed dirs", () => {
+		expect(isWriteRestricted("/etc/passwd", cwd, home)).toBe(true);
+	});
+
+	it("should deny write to restricted files (basename match)", () => {
+		expect(isWriteRestricted("/workspace/project/.env", cwd, home)).toBe(true);
+		expect(isWriteRestricted("/workspace/project/sub/.env", cwd, home)).toBe(
+			true,
+		);
+	});
+
+	it("should deny write to restricted read areas", () => {
+		expect(isWriteRestricted("/home/user/.ssh/config", cwd, home)).toBe(true);
+	});
+
+	it("should deny write to denied patterns in /tmp (fixes bypass)", () => {
+		expect(isWriteRestricted("/tmp/my-project/.git/config", cwd, home)).toBe(
+			true,
+		);
+		expect(isWriteRestricted("/tmp/.env", cwd, home)).toBe(true);
+		expect(isWriteRestricted("/tmp/foo.pem", cwd, home)).toBe(true);
+	});
+
+	it("should handle path traversal attempts", () => {
+		// Attempt to go from /tmp to /etc
+		expect(isWriteRestricted("/tmp/../etc/passwd", cwd, home)).toBe(true);
+		// Attempt to go from cwd to /etc
+		expect(
+			isWriteRestricted("/workspace/project/../../etc/passwd", cwd, home),
+		).toBe(true);
+	});
+
+	it("should handle hidden files correctly (dot: true)", () => {
+		expect(isWriteRestricted("/workspace/project/.git/config", cwd, home)).toBe(
+			true,
+		);
+		expect(isWriteRestricted("/tmp/.git/HEAD", cwd, home)).toBe(true);
+	});
+
+	it("should allow regular files in nested /tmp dirs", () => {
+		expect(isWriteRestricted("/tmp/my-app/logs/test.log", cwd, home)).toBe(
+			false,
+		);
 	});
 });
 

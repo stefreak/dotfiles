@@ -18,6 +18,8 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import os from "node:os";
+import * as path from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type {
 	ExtensionAPI,
@@ -35,6 +37,8 @@ import {
 	CONFIRM_ALLOW,
 	CONFIRM_OPTIONS,
 	DEFAULT_RUNTIME_CONFIG,
+	isReadRestricted,
+	isWriteRestricted,
 	modeStatusText,
 	type SandboxMode,
 	SUPPORTED_PLATFORMS,
@@ -42,6 +46,7 @@ import {
 	sandboxFooterFull,
 	shouldConfirmTool,
 	shouldShowFullFooter,
+	WRITE_TOOLS,
 } from "./config.js";
 
 function createSandboxedBashOps(): BashOperations {
@@ -160,6 +165,7 @@ export default function (pi: ExtensionAPI) {
 
 		return new Promise<boolean>((resolve, reject) => {
 			dialogQueue = dialogQueue
+				.catch(() => {}) // Recover from previous rejection (denial)
 				.then(async () => {
 					const choice = await ctx.ui.select(
 						`[${index}/${dialogTotal}] ${title}`,
@@ -363,36 +369,65 @@ export default function (pi: ExtensionAPI) {
 				return "File write";
 			case "read":
 				return "File read";
-			case "grep":
-				return "Search";
-			case "find":
-				return "Find files";
-			case "ls":
-				return "List directory";
 			default:
 				return toolName;
 		}
 	}
 
 	pi.on("tool_call", async (event, ctx) => {
-		if (!shouldConfirmTool(currentMode, event.toolName)) return;
+		const toolName = event.toolName;
+		const isSandboxedMode = currentMode === "sandboxed";
 
-		const label = toolCallLabel(event.toolName);
+		let needsConfirmation = shouldConfirmTool(currentMode, toolName);
+		let isBypass = false;
+
+		const homeDir = os.homedir();
+
+		// In sandboxed mode, restricted reads and writes need bypass approval
+		if (isSandboxedMode) {
+			const input = event.input as { path?: string };
+			if (input.path) {
+				const absPath = path.resolve(ctx.cwd, input.path);
+
+				if (WRITE_TOOLS.has(toolName)) {
+					if (isWriteRestricted(absPath, ctx.cwd, homeDir)) {
+						needsConfirmation = true;
+						isBypass = true;
+					}
+				} else if (toolName === "read") {
+					if (isReadRestricted(absPath, homeDir)) {
+						needsConfirmation = true;
+						isBypass = true;
+					}
+				}
+			}
+		}
+
+		if (!needsConfirmation) return;
+
+		const label = toolCallLabel(toolName);
 		const detail = formatToolInput(
-			event.toolName,
+			toolName,
 			event.input as Record<string, unknown>,
 		);
 
-		const approved = await confirmDialog(
+		const options = isBypass ? BYPASS_OPTIONS : CONFIRM_OPTIONS;
+		const allow = isBypass ? BYPASS_ALLOW : CONFIRM_ALLOW;
+		const title = isBypass
+			? `Sandbox bypass: ${label} ${detail}`
+			: `${label}: ${detail}`;
+
+		await confirmDialog(
 			ctx,
-			`${label}: ${detail}`,
-			CONFIRM_OPTIONS,
-			CONFIRM_ALLOW,
-			`Why deny ${label.toLowerCase()}?`,
+			title,
+			options,
+			allow,
+			isBypass ? "Why deny?" : `Why deny ${label.toLowerCase()}?`,
 			`${label} denied.`,
 		);
-		if (!approved) return undefined;
-		return { block: true, reason: `${label} denied.` };
+
+		// If we reached here, it was approved (otherwise confirmDialog would have thrown)
+		return undefined;
 	});
 
 	// --- User bash events ---

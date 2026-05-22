@@ -5,6 +5,7 @@
  * - Mode transitions via session_start and /sandbox command
  * - That unsupported platforms gracefully fall back to yolo
  * - That sandbox init failure on a supported platform crashes (never silently runs unsandboxed)
+ * - Tool Call Monitoring (Write/Edit Bypasses)
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -23,6 +24,16 @@ vi.mock("@anthropic-ai/sandbox-runtime", () => ({
 		initialize: mockInitialize,
 		reset: mockReset,
 		wrapWithSandbox: mockWrapWithSandbox,
+	},
+}));
+
+// ---------------------------------------------------------------------------
+// Mock os
+// ---------------------------------------------------------------------------
+
+vi.mock("node:os", () => ({
+	default: {
+		homedir: () => "/home/user",
 	},
 }));
 
@@ -92,8 +103,8 @@ function createFakePiAPI() {
 		notifications,
 		statuses,
 		createFakeContext(overrides: Record<string, unknown> = {}) {
-			return {
-				cwd: "/tmp",
+			const ctx = {
+				cwd: "/workspace/project",
 				ui: {
 					setStatus: vi.fn((key: string, text: string) => {
 						statuses.push({ key, text });
@@ -101,11 +112,30 @@ function createFakePiAPI() {
 					notify: vi.fn((message: string, level: string) => {
 						notifications.push({ message, level });
 					}),
-					select: vi.fn(),
-					input: vi.fn(),
+					select: vi.fn((title: string, _options: string[]) => {
+						return new Promise<string | undefined>((resolve) => {
+							ctx.pendingSelects.push({
+								title,
+								resolve: resolve as (choice: string) => void,
+							});
+						});
+					}),
+					input: vi.fn(() => {
+						return new Promise<string | undefined>((resolve) => {
+							ctx.pendingInputs.push({ resolve });
+						});
+					}),
 				},
+				pendingSelects: [] as Array<{
+					title: string;
+					resolve: (choice: string) => void;
+				}>,
+				pendingInputs: [] as Array<{
+					resolve: (value: string | undefined) => void;
+				}>,
 				...overrides,
 			};
+			return ctx;
 		},
 	};
 }
@@ -120,6 +150,10 @@ async function loadExtension(pi: FakePi) {
 		sandboxCommand: pi.commands.get("sandbox") as {
 			handler: (args: string, ctx: unknown) => Promise<void>;
 		},
+		onToolCall: (pi.handlers.get("tool_call") ?? [])[0] as (
+			event: { toolName: string; input: Record<string, unknown> },
+			ctx: unknown,
+		) => Promise<unknown>,
 	};
 }
 
@@ -209,5 +243,155 @@ describe("sandbox init failure on supported platform", () => {
 		}
 
 		platformSpy.mockRestore();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Tool Call Monitoring (Write/Edit Bypasses)
+// ---------------------------------------------------------------------------
+
+describe("tool call monitoring", () => {
+	async function setup() {
+		const pi = createFakePiAPI();
+		const ext = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		// session_start initializes sandboxed mode
+		for (const handler of pi.handlers.get("session_start") ?? []) {
+			await handler({}, ctx);
+		}
+
+		return { pi, ...ext, ctx };
+	}
+
+	it("write to cwd should NOT trigger a dialog", async () => {
+		const { onToolCall, ctx } = await setup();
+
+		const result = await onToolCall(
+			{
+				toolName: "write",
+				input: { path: "/workspace/project/src/index.ts", content: "hello" },
+			},
+			ctx,
+		);
+
+		expect(result).toBeUndefined();
+		expect(ctx.pendingSelects).toHaveLength(0);
+	});
+
+	it("write to /tmp should NOT trigger a dialog", async () => {
+		const { onToolCall, ctx } = await setup();
+
+		const result = await onToolCall(
+			{
+				toolName: "write",
+				input: { path: "/tmp/test-file.ts", content: "hello" },
+			},
+			ctx,
+		);
+
+		expect(result).toBeUndefined();
+		expect(ctx.pendingSelects).toHaveLength(0);
+	});
+
+	it("write to path outside cwd and /tmp MUST trigger a dialog", async () => {
+		const { onToolCall, ctx } = await setup();
+
+		const resultPromise = onToolCall(
+			{
+				toolName: "write",
+				input: { path: "/etc/config.conf", content: "malicious" },
+			},
+			ctx,
+		);
+
+		await new Promise((r) => setTimeout(r, 10));
+		expect(ctx.pendingSelects).toHaveLength(1);
+		expect(ctx.pendingSelects[0].title).toContain("write");
+		expect(ctx.pendingSelects[0].title).toContain("/etc/config.conf");
+
+		ctx.pendingSelects[0].resolve("✅ Allow — run outside sandbox");
+		await resultPromise;
+	});
+
+	it("write to denied path (e.g. .env) MUST trigger a dialog even if in cwd", async () => {
+		const { onToolCall, ctx } = await setup();
+
+		const resultPromise = onToolCall(
+			{
+				toolName: "write",
+				input: { path: "/workspace/project/.env", content: "SECRET=xyz" },
+			},
+			ctx,
+		);
+
+		await new Promise((r) => setTimeout(r, 10));
+		expect(ctx.pendingSelects).toHaveLength(1);
+
+		ctx.pendingSelects[0].resolve("✅ Allow — run outside sandbox");
+		await resultPromise;
+	});
+
+	it("edit to path outside cwd and /tmp MUST trigger a dialog", async () => {
+		const { onToolCall, ctx } = await setup();
+
+		const resultPromise = onToolCall(
+			{
+				toolName: "edit",
+				input: {
+					path: "/usr/local/bin/something",
+					edits: [{ oldText: "foo", newText: "bar" }],
+				},
+			},
+			ctx,
+		);
+
+		await new Promise((r) => setTimeout(r, 10));
+		expect(ctx.pendingSelects).toHaveLength(1);
+
+		ctx.pendingSelects[0].resolve("✅ Allow — run outside sandbox");
+		await resultPromise;
+	});
+
+	it("read from restricted path MUST trigger a dialog", async () => {
+		const { onToolCall, ctx } = await setup();
+
+		const resultPromise = onToolCall(
+			{
+				toolName: "read",
+				input: { path: "/home/user/.ssh/id_rsa" },
+			},
+			ctx,
+		);
+
+		await new Promise((r) => setTimeout(r, 10));
+		expect(ctx.pendingSelects).toHaveLength(1);
+		expect(ctx.pendingSelects[0].title).toContain("read");
+		expect(ctx.pendingSelects[0].title).toContain("/home/user/.ssh/id_rsa");
+
+		ctx.pendingSelects[0].resolve("✅ Allow — run outside sandbox");
+		await resultPromise;
+	});
+
+	it("denied write shows feedback in error", async () => {
+		const { onToolCall, ctx } = await setup();
+
+		const resultPromise = onToolCall(
+			{
+				toolName: "write",
+				input: { path: "/etc/config.conf", content: "malicious" },
+			},
+			ctx,
+		);
+
+		await new Promise((r) => setTimeout(r, 10));
+		ctx.pendingSelects[0].resolve("❌ Deny");
+
+		await new Promise((r) => setTimeout(r, 10));
+		ctx.pendingInputs[0].resolve("security risk");
+
+		await expect(resultPromise).rejects.toThrow(
+			"File write denied. Feedback: security risk",
+		);
 	});
 });

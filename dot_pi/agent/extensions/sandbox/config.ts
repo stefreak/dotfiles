@@ -3,7 +3,9 @@
  * Extracted for testability.
  */
 
+import * as path from "node:path";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import { minimatch } from "minimatch";
 
 export type SandboxMode = "ask" | "sandboxed" | "yolo";
 
@@ -127,4 +129,77 @@ export function modeStatusText(mode: SandboxMode): string {
 		case "yolo":
 			return "🚀 YOLO mode: no restrictions, no questions";
 	}
+}
+
+/**
+ * Check if a read to the given path would violate sandbox restrictions.
+ * Returns true if the read needs a bypass dialog.
+ */
+export function isReadRestricted(
+	absolutePath: string,
+	homeDir: string,
+): boolean {
+	const cfg = DEFAULT_RUNTIME_CONFIG.filesystem;
+	const normalizedPath = path.resolve(absolutePath);
+
+	// Resolve denyRead paths (handle ~)
+	const resolvedDenyRead = cfg.denyRead.map((p) =>
+		path.resolve(p.startsWith("~") ? p.replace("~", homeDir) : p),
+	);
+
+	return resolvedDenyRead.some(
+		(denied) =>
+			normalizedPath === denied || normalizedPath.startsWith(`${denied}/`),
+	);
+}
+
+/**
+ * Check if a write to the given path would violate sandbox restrictions.
+ * Returns true if the write needs a bypass dialog.
+ *
+ * A write needs bypass if:
+ * - The path is in a restricted read area, OR
+ * - The path is outside all allowed write directories, OR
+ * - The path matches a denied write pattern
+ */
+export function isWriteRestricted(
+	absolutePath: string,
+	cwd: string,
+	homeDir: string,
+): boolean {
+	const normalizedPath = path.resolve(absolutePath);
+
+	// If you can't read it, you definitely can't write it
+	if (isReadRestricted(normalizedPath, homeDir)) return true;
+
+	const cfg = DEFAULT_RUNTIME_CONFIG.filesystem;
+
+	// Resolve allowed write dirs to absolute paths
+	const allowedAbs = cfg.allowWrite.map((p) =>
+		p === "." ? path.resolve(cwd) : path.resolve(cwd, p),
+	);
+
+	// Check if path is under any allowed dir
+	const matchedAllowed = allowedAbs.find(
+		(allowed) =>
+			normalizedPath === allowed || normalizedPath.startsWith(`${allowed}/`),
+	);
+
+	if (!matchedAllowed) return true;
+
+	// Even if under allowed dir, check deny patterns against the basename
+	// and relative path (relative to the matched allowed directory)
+	const basename = path.basename(normalizedPath);
+	const relative = path.relative(matchedAllowed, normalizedPath);
+
+	const matchesDeny = cfg.denyWrite.some((pattern) => {
+		// Use dot: true to ensure hidden files like .env are matched correctly
+		const options = { dot: true };
+		if (minimatch(basename, pattern, options)) return true;
+		if (relative && minimatch(relative, pattern, options)) return true;
+
+		return false;
+	});
+
+	return matchesDeny;
 }

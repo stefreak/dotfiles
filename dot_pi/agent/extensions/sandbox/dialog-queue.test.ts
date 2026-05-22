@@ -334,6 +334,51 @@ describe("dialog queue — concurrent bypass requests", () => {
 		const result = await resultPromise;
 		expect(result).toBeDefined();
 	});
+
+	it("recovers from a denial (no deadlock)", async () => {
+		const { pi, bashTool } = await setup();
+		const ctx = pi.createFakeContext();
+
+		// Fire 2 concurrent bypass requests
+		const p1 = bashTool.execute(
+			"1",
+			{ command: "true", askOutsideSandbox: true },
+			undefined,
+			vi.fn(),
+			ctx,
+		);
+		const p2 = bashTool.execute(
+			"2",
+			{ command: "true", askOutsideSandbox: true },
+			undefined,
+			vi.fn(),
+			ctx,
+		);
+
+		// Let the first select fire
+		await new Promise((r) => setTimeout(r, 10));
+		expect(pi.pendingSelects).toHaveLength(1);
+
+		// Deny first
+		pi.pendingSelects[0].resolve("❌ Deny");
+		await new Promise((r) => setTimeout(r, 10));
+
+		// Handle feedback for p1
+		expect(pi.pendingInputs).toHaveLength(1);
+		pi.pendingInputs[0].resolve("no");
+
+		// p1 should reject
+		await expect(p1).rejects.toThrow("Sandbox bypass denied.");
+
+		// Second dialog should now fire (deadlock fix check)
+		await new Promise((r) => setTimeout(r, 10));
+		expect(pi.pendingSelects).toHaveLength(2);
+		expect(pi.pendingSelects[1].title).toContain("[2/2]");
+
+		// Approve second
+		pi.pendingSelects[1].resolve("✅ Allow — run outside sandbox");
+		await expect(p2).resolves.toBeDefined();
+	});
 });
 
 describe("dialog queue — concurrent ask-mode tool calls", () => {
