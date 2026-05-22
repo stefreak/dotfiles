@@ -18,6 +18,7 @@ export const DEFAULT_RUNTIME_CONFIG: SandboxRuntimeConfig = {
 			"kagi.com",
 			"*.kagi.com",
 			"api.search.brave.com",
+			"*.youtube.com",
 		],
 		deniedDomains: [],
 	},

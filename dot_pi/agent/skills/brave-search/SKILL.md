@@ -39,6 +39,12 @@ Scripts must be invoked directly, not via `node`.
   - `py` - Past year
   - `YYYY-MM-DDtoYYYY-MM-DD` - Custom date range
 
+## Sandbox
+
+- `search.js` calls the Brave Search API (`api.search.brave.com`, whitelisted). **No sandbox bypass needed.**
+- `content.js` fetches arbitrary URLs. **Always use `askOutsideSandbox: true`** unless the domain is in the sandbox whitelist.
+- Using `--content` with `search.js` fetches page content, so also needs `askOutsideSandbox: true`.
+
 ## Extract Page Content
 
 ```bash

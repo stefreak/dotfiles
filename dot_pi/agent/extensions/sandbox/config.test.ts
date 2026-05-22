@@ -162,7 +162,7 @@ describe("sandboxInfo", () => {
 	it("matches snapshot", () => {
 		expect(sandboxFooterFull()).toMatchInlineSnapshot(`
 			"--- SANDBOX ---
-			Network allowed: raw.githubusercontent.com, deepwiki.com, docs.rs, pkg.go.dev, npmjs.org, kagi.com, *.kagi.com, api.search.brave.com
+			Network allowed: raw.githubusercontent.com, deepwiki.com, docs.rs, pkg.go.dev, npmjs.org, kagi.com, *.kagi.com, api.search.brave.com, *.youtube.com
 			Network denied: (none)
 			Filesystem deny read: ~/.ssh, ~/.aws, ~/.gnupg
 			Filesystem allow write: ., /tmp

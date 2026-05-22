@@ -48,6 +48,10 @@ Accessibility snapshots (`browser_snapshot`) are good for finding interactive el
 
 In short: **use snapshots to find and interact with elements; use screenshots to see and judge visual output.** When in doubt about whether a change looks right, take a screenshot.
 
+## Sandbox
+
+Browser control launches external processes and makes network requests. **Always use `askOutsideSandbox: true`** when running any `mcporter call playwright.*` command.
+
 ## General Notes
 
 - Always use `mcporter call` via the bash tool — never attempt direct HTTP calls
