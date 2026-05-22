@@ -1,0 +1,30 @@
+{
+	"name": "pi-extension-sandbox",
+	"private": true,
+	"version": "1.5.3",
+	"type": "module",
+	"scripts": {
+		"clean": "echo 'nothing to clean'",
+		"build": "echo 'nothing to build'",
+		"check": "tsc --noEmit && biome check .",
+		"test": "vitest run"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"dependencies": {
+		"@anthropic-ai/sandbox-runtime": "^0.0.26",
+		"async-ts": "^1.1.2",
+		"typebox": "^1.1.38"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.15",
+		"@earendil-works/pi-coding-agent": "^0.75.4",
+		"@types/node": "^25.9.1",
+		"tsx": "^4.22.3",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.7"
+	}
+}

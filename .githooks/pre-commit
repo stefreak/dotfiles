@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+SANDBOX_DIR="$REPO_ROOT/dot_pi/agent/extensions/sandbox"
+
+# Only run sandbox checks when sandbox files are staged
+sandbox_files=$(git diff --cached --name-only -- "$SANDBOX_DIR")
+if [ -n "$sandbox_files" ]; then
+	echo ">> Sandbox extension files changed — running checks..."
+	(
+		cd "$SANDBOX_DIR"
+		npm run check
+		npm test
+	)
+fi
+
+# Shellcheck any staged shell scripts
+sh_files=$(git diff --cached --diff-filter=d --name-only -- '*.sh' '*.sh.tmpl')
+if [ -n "$sh_files" ]; then
+	echo ">> Shell scripts changed — running shellcheck..."
+	for f in $sh_files; do
+		# .sh.tmpl files are shellcheck-compatible as-is (chezmoi templates are valid
+		# shell with {{...}} in comments or strings that shellcheck ignores)
+		shellcheck "$REPO_ROOT/$f"
+	done
+fi
+
+# Verify every committed package.json has a committed package-lock.json
+while IFS= read -r pkg_json; do
+	lockfile="${pkg_json%/*}/package-lock.json"
+	if ! git ls-files -- "$lockfile" | grep -q .; then
+		echo "ERROR: $pkg_json has no committed package-lock.json"
+		echo "  Run 'npm install' in the source dir and commit the lockfile."
+		exit 1
+	fi
+done < <(git ls-files -- '*/package.json')
+
+# Verify every committed pyproject.toml has a committed uv.lock
+while IFS= read -r pyproject; do
+	lockfile="${pyproject%/*}/uv.lock"
+	if ! git ls-files -- "$lockfile" | grep -q .; then
+		echo "ERROR: $pyproject has no committed uv.lock"
+		echo "  Run 'uv lock' in the source dir and commit the lockfile."
+		exit 1
+	fi
+done < <(git ls-files -- '*/pyproject.toml')
+
+# Verify every package-lock.json has a corresponding npm ci entry
+# in run_onchange_install-deps.sh.tmpl
+TEMPLATE="$REPO_ROOT/run_onchange_install-deps.sh.tmpl"
+if [ -f "$TEMPLATE" ]; then
+	while IFS= read -r lockfile; do
+		# Convert source path to live target path (strip leading "dot_" -> ".")
+		target_dir=$(dirname "$lockfile" | sed 's/^dot_/\./')
+		if ! grep -qF "npm ci --prefix \"\$HOME/$target_dir\"" "$TEMPLATE"; then
+			echo "ERROR: $lockfile has no 'npm ci' entry in run_onchange_install-deps.sh.tmpl"
+			echo "  Expected: npm ci --prefix \"\$HOME/$target_dir\""
+			echo "  Add a hash-commented block and the npm ci line to the template."
+			exit 1
+		fi
+	done < <(git ls-files -- '*package-lock.json')
+fi

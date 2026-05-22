@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# pi sandbox extension
+# package.json hash: {{ include "dot_pi/agent/extensions/sandbox/package.json" | sha256sum }}
+# package-lock.json hash: {{ include "dot_pi/agent/extensions/sandbox/package-lock.json" | sha256sum }}
+npm ci --prefix "$HOME/.pi/agent/extensions/sandbox"
+
+# pi brave-search skill
+# package.json hash: {{ include "dot_pi/agent/skills/brave-search/package.json" | sha256sum }}
+# package-lock.json hash: {{ include "dot_pi/agent/skills/brave-search/package-lock.json" | sha256sum }}
+npm ci --prefix "$HOME/.pi/agent/skills/brave-search"
+
+# pi youtube-transcript skill
+# package.json hash: {{ include "dot_pi/agent/skills/youtube-transcript/package.json" | sha256sum }}
+# package-lock.json hash: {{ include "dot_pi/agent/skills/youtube-transcript/package-lock.json" | sha256sum }}
+npm ci --prefix "$HOME/.pi/agent/skills/youtube-transcript"
+
+# mcporter playwright
+# package.json hash: {{ include "dot_mcporter/playwright/package.json" | sha256sum }}
+# package-lock.json hash: {{ include "dot_mcporter/playwright/package-lock.json" | sha256sum }}
+npm ci --prefix "$HOME/.mcporter/playwright"
