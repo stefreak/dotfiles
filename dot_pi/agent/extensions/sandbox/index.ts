@@ -17,7 +17,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import os from "node:os";
 import * as path from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
@@ -48,6 +48,20 @@ import {
 	shouldShowFullFooter,
 	WRITE_TOOLS,
 } from "./config.js";
+
+/**
+ * Resolve symlinks in a path, even if the file doesn't exist.
+ * Resolves as much of the path as possible by traversing upwards.
+ */
+function safeRealpath(absPath: string): string {
+	try {
+		return realpathSync(absPath);
+	} catch {
+		const parent = path.dirname(absPath);
+		if (parent === absPath) return absPath; // Root
+		return path.join(safeRealpath(parent), path.basename(absPath));
+	}
+}
 
 function createSandboxedBashOps(): BashOperations {
 	return {
@@ -381,21 +395,23 @@ export default function (pi: ExtensionAPI) {
 		let needsConfirmation = shouldConfirmTool(currentMode, toolName);
 		let isBypass = false;
 
-		const homeDir = os.homedir();
+		const homeDir = safeRealpath(os.homedir());
 
 		// In sandboxed mode, restricted reads and writes need bypass approval
 		if (isSandboxedMode) {
 			const input = event.input as { path?: string };
 			if (input.path) {
 				const absPath = path.resolve(ctx.cwd, input.path);
+				const resolvedPath = safeRealpath(absPath);
+				const resolvedCwd = safeRealpath(ctx.cwd);
 
 				if (WRITE_TOOLS.has(toolName)) {
-					if (isWriteRestricted(absPath, ctx.cwd, homeDir)) {
+					if (isWriteRestricted(resolvedPath, resolvedCwd, homeDir)) {
 						needsConfirmation = true;
 						isBypass = true;
 					}
 				} else if (toolName === "read") {
-					if (isReadRestricted(absPath, homeDir)) {
+					if (isReadRestricted(resolvedPath, homeDir)) {
 						needsConfirmation = true;
 						isBypass = true;
 					}

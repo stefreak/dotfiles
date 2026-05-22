@@ -28,7 +28,7 @@ vi.mock("@anthropic-ai/sandbox-runtime", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock os
+// Mock os and fs
 // ---------------------------------------------------------------------------
 
 vi.mock("node:os", () => ({
@@ -36,6 +36,15 @@ vi.mock("node:os", () => ({
 		homedir: () => "/home/user",
 	},
 }));
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = (await importOriginal()) as typeof import("node:fs");
+	return {
+		...actual,
+		realpathSync: vi.fn((p: string) => p),
+		existsSync: vi.fn(() => true),
+	};
+});
 
 // ---------------------------------------------------------------------------
 // Helpers to build a fake pi ExtensionAPI
@@ -368,6 +377,36 @@ describe("tool call monitoring", () => {
 		expect(ctx.pendingSelects).toHaveLength(1);
 		expect(ctx.pendingSelects[0].title).toContain("read");
 		expect(ctx.pendingSelects[0].title).toContain("/home/user/.ssh/id_rsa");
+
+		ctx.pendingSelects[0].resolve("✅ Allow — run outside sandbox");
+		await resultPromise;
+	});
+
+	it("read from a SYMLINK to a restricted path MUST trigger a dialog", async () => {
+		const { onToolCall, ctx } = await setup();
+		const fs = await import("node:fs");
+
+		// Mock the symlink resolution: /tmp/link -> /home/user/.ssh/id_rsa
+		vi.mocked(fs.realpathSync).mockImplementation((p) => {
+			const pathStr = p.toString();
+			if (pathStr === "/tmp/link") return "/home/user/.ssh/id_rsa";
+			return pathStr;
+		});
+
+		const resultPromise = onToolCall(
+			{
+				toolName: "read",
+				input: { path: "/tmp/link" },
+			},
+			ctx,
+		);
+
+		await new Promise((r) => setTimeout(r, 10));
+		expect(ctx.pendingSelects).toHaveLength(1);
+		expect(ctx.pendingSelects[0].title).toContain("read");
+		// The title should show the original path or the resolved one?
+		// Current implementation resolves it before checking.
+		// Let's check what the code does.
 
 		ctx.pendingSelects[0].resolve("✅ Allow — run outside sandbox");
 		await resultPromise;
