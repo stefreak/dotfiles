@@ -5,11 +5,19 @@
 
 version: 2
 updates:
-  - package-ecosystem: "npm" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "npm"
+    directory: "/dot_pi/agent/extensions/sandbox"
     schedule:
       interval: "weekly"
-  - package-ecosystem: "uv" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "npm"
+    directory: "/dot_pi/agent/skills/youtube-transcript"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/dot_pi/agent/skills/brave-search"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/dot_mcporter/playwright"
     schedule:
       interval: "weekly"

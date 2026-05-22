@@ -61,3 +61,20 @@ if [ -f "$TEMPLATE" ]; then
 		fi
 	done < <(git ls-files -- '*package-lock.json')
 fi
+
+# Verify every directory with a lockfile is in .github/dependabot.yml
+DEPENDABOT_CONFIG="$REPO_ROOT/.github/dependabot.yml"
+if [ -f "$DEPENDABOT_CONFIG" ]; then
+	while IFS= read -r lockfile; do
+		# Dependabot directories are absolute from repo root, starting with /
+		dir="/$(dirname "$lockfile")"
+		dir="${dir%/.}" # Handle root
+		if [ -z "$dir" ]; then dir="/"; fi
+
+		if ! grep -qF "directory: \"$dir\"" "$DEPENDABOT_CONFIG"; then
+			echo "ERROR: $lockfile directory ($dir) is not in .github/dependabot.yml"
+			echo "  Add an entry to .github/dependabot.yml for this directory."
+			exit 1
+		fi
+	done < <(git ls-files -- '*package-lock.json' '*uv.lock')
+fi
