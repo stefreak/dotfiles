@@ -10,16 +10,11 @@ export type SandboxMode = "ask" | "sandboxed" | "yolo";
 export const DEFAULT_RUNTIME_CONFIG: SandboxRuntimeConfig = {
 	network: {
 		allowedDomains: [
-			"npmjs.org",
-			"*.npmjs.org",
-			"registry.npmjs.org",
-			"registry.yarnpkg.com",
-			"pypi.org",
-			"*.pypi.org",
-			"github.com",
-			"*.github.com",
-			"api.github.com",
 			"raw.githubusercontent.com",
+			"deepwiki.com",
+			"docs.rs",
+			"pkg.go.dev",
+			"npmjs.org",
 			"kagi.com",
 			"*.kagi.com",
 			"api.search.brave.com",

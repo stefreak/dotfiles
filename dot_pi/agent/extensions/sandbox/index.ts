@@ -28,6 +28,7 @@ import {
 	type BashOperations,
 	createBashTool,
 } from "@earendil-works/pi-coding-agent";
+import { Mutex } from "async-ts";
 import { Type } from "typebox";
 import {
 	BYPASS_ALLOW,
@@ -42,7 +43,6 @@ import {
 	sandboxFooterFull,
 	shouldConfirmTool,
 	shouldShowFullFooter,
-	unsupportedFooter,
 } from "./config.js";
 
 function createSandboxedBashOps(): BashOperations {
@@ -133,8 +133,8 @@ export default function (pi: ExtensionAPI) {
 
 	let currentMode: SandboxMode = "sandboxed";
 	let sandboxInitialized = false;
-	let unsupportedPlatform: string | undefined;
 	let toolCallCount = 0;
+	const modeMutex = new Mutex();
 
 	const sandboxedParams = Type.Object({
 		command: Type.String({ description: "Bash command to execute" }),
@@ -161,6 +161,8 @@ export default function (pi: ExtensionAPI) {
 		_cwd: string,
 		ctx: ExtensionContext | ExtensionCommandContext,
 	) {
+		using _ = await modeMutex.lock();
+
 		// Tear down existing sandbox
 		if (sandboxInitialized) {
 			await SandboxManager.reset();
@@ -169,13 +171,11 @@ export default function (pi: ExtensionAPI) {
 
 		currentMode = mode;
 		toolCallCount = 0;
-		unsupportedPlatform = undefined;
 
 		if (mode === "sandboxed") {
 			const platform = process.platform;
 			if (!SUPPORTED_PLATFORMS.has(platform)) {
 				currentMode = "yolo";
-				unsupportedPlatform = platform;
 				ctx.ui.setStatus(
 					"sandbox",
 					`🚀 YOLO mode: not supported on ${platform} (/sandbox)`,
@@ -222,26 +222,25 @@ export default function (pi: ExtensionAPI) {
 		parameters: sandboxedParams,
 
 		async execute(id, params, signal, onUpdate, ctx) {
+			// Snapshot mode under lock so concurrent switchMode can't race us.
+			// We read all state we need and release immediately — the actual
+			// execution is long-running and must not hold the mutex.
+			const snapshot = await (async () => {
+				using _ = await modeMutex.lock();
+				return {
+					mode: currentMode,
+					init: sandboxInitialized,
+				};
+			})();
+
 			// Ask mode: no sandbox, but askOutsideSandbox is auto-approved (sandbox is off)
-			if (currentMode === "ask") {
+			if (snapshot.mode === "ask") {
 				return localBash.execute(id, params, signal, onUpdate);
 			}
 
 			// YOLO mode: no sandbox, no questions. askOutsideSandbox is
 			// meaningless here (no sandbox to escape), so ignore it.
-			// Attach unsupported footer if sandbox is unavailable on this platform.
-			if (currentMode === "yolo") {
-				if (unsupportedPlatform) {
-					const footer = unsupportedFooter(unsupportedPlatform);
-					const result = await localBash.execute(id, params, signal, onUpdate);
-					return {
-						...result,
-						content: [
-							...(result.content ?? []),
-							{ type: "text", text: footer },
-						],
-					};
-				}
+			if (snapshot.mode === "yolo") {
 				return localBash.execute(id, params, signal, onUpdate);
 			}
 
@@ -269,7 +268,7 @@ export default function (pi: ExtensionAPI) {
 			// Sandboxed execution — crash if sandbox failed to initialize
 			// on a supported platform (this should never happen after the fix
 			// to switchMode, but belt-and-suspenders).
-			if (!sandboxInitialized) {
+			if (!snapshot.init) {
 				throw new Error(
 					"BUG: sandbox mode is active but sandbox is not initialized. " +
 						"Refusing to execute without sandbox.",

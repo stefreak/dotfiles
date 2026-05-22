@@ -51,7 +51,12 @@ async function sandboxedExec(
 	});
 }
 
-async function withSandbox(fn: (root: string) => Promise<void>) {
+async function withSandbox(
+	fn: (root: string) => Promise<void>,
+	options?: {
+		allowNetwork?: string[];
+	},
+) {
 	originalCwd = process.cwd();
 	testRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sandbox-integ-"));
 
@@ -59,7 +64,10 @@ async function withSandbox(fn: (root: string) => Promise<void>) {
 	process.chdir(testRoot);
 
 	await SandboxManager.initialize({
-		network: { allowedDomains: [], deniedDomains: [] },
+		network: {
+			allowedDomains: options?.allowNetwork ?? [],
+			deniedDomains: [],
+		},
 		filesystem: {
 			allowWrite: ["."],
 			denyRead: [],
@@ -186,5 +194,36 @@ describe("denied paths block real writes via sandbox", () => {
 			);
 			expect(fs.existsSync(targetFile)).toBe(false);
 		});
+	});
+});
+
+describe("network restrictions", () => {
+	it("blocks connections to unallowed domains", async () => {
+		await withSandbox(
+			async (root) => {
+				const { output } = await sandboxedExec(
+					// curl returns 000 when it can't connect
+					"curl -s -o /dev/null -w '%{http_code}' https://example.com",
+					root,
+				);
+				// curl exits 0 even when the connection is denied by the
+				// sandbox, but the HTTP status will be 000 (no response).
+				expect(output.trim()).toBe("000");
+			},
+			{ allowNetwork: [] },
+		);
+	});
+
+	it("allows connections to allowed domains", async () => {
+		await withSandbox(
+			async (root) => {
+				const { exitCode } = await sandboxedExec(
+					"curl -s -o /dev/null -w '%{http_code}' https://registry.npmjs.org/",
+					root,
+				);
+				expect(exitCode).toBe(0);
+			},
+			{ allowNetwork: ["registry.npmjs.org"] },
+		);
 	});
 });
