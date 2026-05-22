@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "playwright": {
-      "command": "npm",
-      "args": ["exec", "--prefix", "{{ .chezmoi.homeDir }}/.mcporter/playwright", "@playwright/mcp"]
+      "command": "{{ .chezmoi.homeDir }}/.mcporter/playwright/node_modules/.bin/playwright-mcp",
+      "args": ["--headless"]
     }
   }
 }

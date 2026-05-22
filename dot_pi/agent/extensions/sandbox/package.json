@@ -6,7 +6,8 @@
 	"scripts": {
 		"clean": "echo 'nothing to clean'",
 		"build": "echo 'nothing to build'",
-		"check": "tsc --noEmit && biome check .",
+		"check": "tsc --noEmit && biome check",
+		"fix": "tsc --noEmit && biome check --write",
 		"test": "vitest run"
 	},
 	"pi": {
@@ -16,7 +17,6 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sandbox-runtime": "^0.0.26",
-		"async-ts": "^1.1.2",
 		"typebox": "^1.1.38"
 	},
 	"devDependencies": {

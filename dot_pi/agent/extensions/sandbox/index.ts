@@ -28,7 +28,6 @@ import {
 	type BashOperations,
 	createBashTool,
 } from "@earendil-works/pi-coding-agent";
-import { Mutex } from "async-ts";
 import { Type } from "typebox";
 import {
 	BYPASS_ALLOW,
@@ -134,7 +133,59 @@ export default function (pi: ExtensionAPI) {
 	let currentMode: SandboxMode = "sandboxed";
 	let sandboxInitialized = false;
 	let toolCallCount = 0;
-	const modeMutex = new Mutex();
+
+	// Serialize UI dialogs (select/input) so concurrent requests don't
+	// overwrite each other in the TUI (only one dialog slot exists).
+	// Counter resets when the queue drains (new batch).
+	let dialogQueue: Promise<unknown> = Promise.resolve();
+	let dialogPending = 0;
+	let dialogTotal = 0;
+
+	/**
+	 * Show a confirmation dialog, serialized via the dialog queue.
+	 * Returns true if approved, throws on deny.
+	 * Counter resets between batches (when queue drains).
+	 */
+	function confirmDialog(
+		ctx: ExtensionContext | ExtensionCommandContext,
+		title: string,
+		options: readonly string[],
+		allowOption: string,
+		denyPrompt: string,
+		errorPrefix: string,
+	): Promise<boolean> {
+		dialogPending++;
+		dialogTotal++;
+		const index = dialogTotal;
+
+		return new Promise<boolean>((resolve, reject) => {
+			dialogQueue = dialogQueue
+				.then(async () => {
+					const choice = await ctx.ui.select(
+						`[${index}/${dialogTotal}] ${title}`,
+						[...options],
+					);
+
+					if (choice === allowOption) {
+						resolve(true);
+						return;
+					}
+
+					const feedback = await ctx.ui.input(
+						denyPrompt,
+						"Explain why or suggest an alternative...",
+					);
+					throw new Error(
+						feedback ? `${errorPrefix} Feedback: ${feedback}` : errorPrefix,
+					);
+				})
+				.then(undefined, reject)
+				.finally(() => {
+					dialogPending--;
+					if (dialogPending === 0) dialogTotal = 0;
+				});
+		});
+	}
 
 	const sandboxedParams = Type.Object({
 		command: Type.String({ description: "Bash command to execute" }),
@@ -161,8 +212,6 @@ export default function (pi: ExtensionAPI) {
 		_cwd: string,
 		ctx: ExtensionContext | ExtensionCommandContext,
 	) {
-		using _ = await modeMutex.lock();
-
 		// Tear down existing sandbox
 		if (sandboxInitialized) {
 			await SandboxManager.reset();
@@ -222,16 +271,10 @@ export default function (pi: ExtensionAPI) {
 		parameters: sandboxedParams,
 
 		async execute(id, params, signal, onUpdate, ctx) {
-			// Snapshot mode under lock so concurrent switchMode can't race us.
-			// We read all state we need and release immediately — the actual
-			// execution is long-running and must not hold the mutex.
-			const snapshot = await (async () => {
-				using _ = await modeMutex.lock();
-				return {
-					mode: currentMode,
-					init: sandboxInitialized,
-				};
-			})();
+			const snapshot = {
+				mode: currentMode,
+				init: sandboxInitialized,
+			};
 
 			// Ask mode: no sandbox, but askOutsideSandbox is auto-approved (sandbox is off)
 			if (snapshot.mode === "ask") {
@@ -244,25 +287,22 @@ export default function (pi: ExtensionAPI) {
 				return localBash.execute(id, params, signal, onUpdate);
 			}
 
-			// Sandboxed mode: ask the user for bypass approval
+			// Sandboxed mode: ask the user for bypass approval (serialized so
+			// concurrent dialogs don't overwrite each other in the UI).
+			// Approval is queued, execution runs after (parallel with next
+			// dialog).
 			if (params.askOutsideSandbox) {
-				const choice = await ctx.ui.select("Sandbox bypass requested", [
-					...BYPASS_OPTIONS,
-				]);
-
-				if (choice === BYPASS_ALLOW) {
+				const approved = await confirmDialog(
+					ctx,
+					"Sandbox bypass",
+					BYPASS_OPTIONS,
+					BYPASS_ALLOW,
+					"Why deny?",
+					"Sandbox bypass denied.",
+				);
+				if (approved) {
 					return localBash.execute(id, params, signal, onUpdate);
 				}
-
-				const feedback = await ctx.ui.input(
-					"Why deny?",
-					"Explain why or suggest an alternative...",
-				);
-				const reason = feedback
-					? `Sandbox bypass denied. Feedback: ${feedback}`
-					: "Sandbox bypass denied.";
-
-				throw new Error(reason);
 			}
 
 			// Sandboxed execution — crash if sandbox failed to initialize
@@ -343,21 +383,16 @@ export default function (pi: ExtensionAPI) {
 			event.input as Record<string, unknown>,
 		);
 
-		const choice = await ctx.ui.select(`${label}: ${detail}`, [
-			...CONFIRM_OPTIONS,
-		]);
-
-		if (choice === CONFIRM_ALLOW) return; // proceed with execution
-
-		const feedback = await ctx.ui.input(
+		const approved = await confirmDialog(
+			ctx,
+			`${label}: ${detail}`,
+			CONFIRM_OPTIONS,
+			CONFIRM_ALLOW,
 			`Why deny ${label.toLowerCase()}?`,
-			"Explain why or suggest an alternative...",
+			`${label} denied.`,
 		);
-		const reason = feedback
-			? `${label} denied. Feedback: ${feedback}`
-			: `${label} denied.`;
-
-		return { block: true, reason };
+		if (!approved) return undefined;
+		return { block: true, reason: `${label} denied.` };
 	});
 
 	// --- User bash events ---
