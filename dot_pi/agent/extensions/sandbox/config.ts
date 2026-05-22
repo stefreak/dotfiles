@@ -96,13 +96,6 @@ export function sandboxFooterBrief(): string {
 }
 
 /**
- * Footer for when the platform doesn't support sandboxing.
- */
-export function unsupportedFooter(platform: string): string {
-	return `-- SANDBOX: NOT AVAILABLE (unsupported platform: ${platform}) --`;
-}
-
-/**
  * Full sandbox context appended every SANDBOX_CONTEXT_INTERVAL tool calls.
  */
 export function sandboxFooterFull(): string {
