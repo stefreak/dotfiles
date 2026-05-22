@@ -1,11 +1,11 @@
 ---
 name: brave-search
-description: Web search and content extraction via Brave Search API. Use for searching documentation, facts, or any web content. Lightweight, no browser required.
+description: MUST read before any web search or URL fetch. Provides search and content extraction via Brave Search API — the fastest way to get web content.
 ---
 
 # Brave Search
 
-Web search and content extraction using the official Brave Search API. No browser required.
+Provides purpose-built scripts for web search and content extraction that are faster and more reliable than ad-hoc `curl` or `fetch` calls — especially for extracting readable content from pages.
 
 ## Setup
 
