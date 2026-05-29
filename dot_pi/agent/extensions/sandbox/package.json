@@ -18,7 +18,7 @@
 	"dependencies": {
 		"@anthropic-ai/sandbox-runtime": "^0.0.26",
 		"minimatch": "^10.2.5",
-		"typebox": "^1.1.38"
+		"typebox": "^1.1.39"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
