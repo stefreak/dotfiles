@@ -231,7 +231,7 @@ describe("sandboxInfo", () => {
 			"--- SANDBOX ---
 			Network allowed: raw.githubusercontent.com, deepwiki.com, docs.rs, pkg.go.dev, npmjs.org, kagi.com, *.kagi.com, api.search.brave.com, *.youtube.com
 			Network denied: (none)
-			Filesystem deny read: ~/.ssh, ~/.aws, ~/.gnupg
+			Filesystem deny read: ~/.ssh, ~/.aws, ~/.gnupg, ~/Library/Application Support, ~/Library/Keychains, ~/.local/share/keyrings, ~/.pki
 			Filesystem allow write: ., /tmp
 			Filesystem deny write: .env, .env.*, *.pem, *.key, **/node_modules/**, **/vendor/**, **/__pycache__/**, **/.venv/**, **/.git/**
 

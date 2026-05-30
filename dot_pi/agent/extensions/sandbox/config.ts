@@ -25,7 +25,15 @@ export const DEFAULT_RUNTIME_CONFIG: SandboxRuntimeConfig = {
 		deniedDomains: [],
 	},
 	filesystem: {
-		denyRead: ["~/.ssh", "~/.aws", "~/.gnupg"],
+		denyRead: [
+			"~/.ssh",
+			"~/.aws",
+			"~/.gnupg",
+			"~/Library/Application Support",
+			"~/Library/Keychains",
+			"~/.local/share/keyrings",
+			"~/.pki",
+		],
 		allowWrite: [".", "/tmp"],
 		denyWrite: [
 			".env",
