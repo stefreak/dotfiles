@@ -6,7 +6,7 @@ Managed by [chezmoi](https://www.chezmoi.io). Includes configuration for the **p
 
 ### Pi — AI Coding Agent
 
-[pi](https://github.com/earendil-works/pi-coding-agent) is a terminal-based AI coding agent. Config lives in `~/.pi/agent/` — agent instructions, model definitions, and skills (browser control, web search, dotfiles sync). API keys are templated from the OS secret store (macOS Keyring).
+[pi](https://github.com/earendil-works/pi-coding-agent) is a terminal-based AI coding agent. Config lives in `~/.pi/agent/` — agent instructions, model definitions, and skills (browser control, web search, dotfiles sync). API keys are stored in chezmoi's data store.
 
 ### mcporter — MCP Tool Bridge
 
@@ -20,11 +20,17 @@ gh auth login
 chezmoi init --apply stefreak
 ```
 
-Then set secrets in macOS Keyring:
+Then set secrets by adding them to `~/.config/chezmoi/chezmoi.toml`:
+
+```toml
+[data]
+  braveSearchApi = "your-brave-api-key"    # required for web search
+  zaiApi = "your-zai-api-key"              # optional, for z.ai models
+```
+
+Then run:
 
 ```sh
-chezmoi secret keyring set --service=brave-search --user=api  # required for web search
-chezmoi secret keyring set --service=zai --user=api            # optional, for z.ai models
 chezmoi apply
 ```
 
@@ -35,7 +41,7 @@ Requires a free subscription (credit card needed to create it, you won't be char
 1. Create an account at https://api-dashboard.search.brave.com/register
 2. Create a "Free AI" subscription
 3. Create an API key for the subscription
-4. Store it in macOS Keyring: `chezmoi secret keyring set --service=brave-search --user=api`
+4. Add it to `~/.config/chezmoi/chezmoi.toml` under `[data]` as `braveSearchApi`
 5. Run `chezmoi apply` to write the `.env` file
 
 ## Chezmoi day-to-day
