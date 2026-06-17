@@ -1,0 +1,4 @@
+[submodule "dot_pi/agent/skills/drunk-claude"]
+	path = dot_pi/agent/skills/drunk-claude
+	url = https://github.com/KorroAi/drunk-claude
+	branch = master
