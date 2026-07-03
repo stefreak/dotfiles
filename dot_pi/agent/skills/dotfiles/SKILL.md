@@ -37,7 +37,7 @@ Before any `git commit` or `git push`, present a plan:
 >
 > Plan:
 > 1. Commit: `"dotfiles: simplify chezmoi skill"`
-> 2. Push to `sandbox-extension` on `stefreak/dotfiles`
+> 2. Push to `main` on `stefreak/dotfiles`
 > 3. Run `chezmoi apply`
 >
 > Shall I proceed?
