@@ -36,6 +36,15 @@
           "contextWindow": 262144,
           "maxTokens": 81920,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "igpu-qwen3.5:122b-a10b-coding",
+          "name": "Qwen 3.5 122B A10B Coding (iGPU, llama-swap)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 81920,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }
       ]
     }
