@@ -45,6 +45,42 @@
           "contextWindow": 131072,
           "maxTokens": 81920,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "igpu-mistral-medium:128b-coding",
+          "name": "Mistral Medium 3.5 128B Coding (iGPU, llama-swap)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 262144,
+          "maxTokens": 81920,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "igpu-laguna:73b-coding",
+          "name": "Laguna S 2.1 73B Coding (iGPU, llama-swap)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 1048576,
+          "maxTokens": 81920,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "igpu-kat-coder:35b-a3b-coding",
+          "name": "KAT Coder V2.5 35B-A3B Coding (iGPU, llama-swap)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 262144,
+          "maxTokens": 81920,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "kat-coder:35b-a3b-coding",
+          "name": "KAT Coder V2.5 35B-A3B Coding (eGPU, llama-swap)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 262144,
+          "maxTokens": 81920,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }
       ]
     }
