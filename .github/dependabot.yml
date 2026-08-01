@@ -18,6 +18,10 @@ updates:
     schedule:
       interval: "weekly"
   - package-ecosystem: "npm"
+    directory: "/dot_hermes/skills/brave-search"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "npm"
     directory: "/dot_mcporter/playwright"
     schedule:
       interval: "weekly"

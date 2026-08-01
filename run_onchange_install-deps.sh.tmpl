@@ -10,6 +10,11 @@ npm ci --prefix "$HOME/.pi/agent/extensions/sandbox"
 # package-lock.json hash: {{ include "dot_pi/agent/skills/brave-search/package-lock.json" | sha256sum }}
 npm ci --prefix "$HOME/.pi/agent/skills/brave-search"
 
+# hermes brave-search skill
+# package.json hash: {{ include "dot_hermes/skills/brave-search/package.json" | sha256sum }}
+# package-lock.json hash: {{ include "dot_hermes/skills/brave-search/package-lock.json" | sha256sum }}
+npm ci --prefix "$HOME/.hermes/skills/brave-search"
+
 # pi youtube-transcript skill
 # package.json hash: {{ include "dot_pi/agent/skills/youtube-transcript/package.json" | sha256sum }}
 # package-lock.json hash: {{ include "dot_pi/agent/skills/youtube-transcript/package-lock.json" | sha256sum }}
