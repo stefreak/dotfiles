@@ -3,8 +3,10 @@
  *
  * Loads the real extension factory against a fake pi API to verify:
  * - Mode transitions via session_start and /sandbox command
- * - That sandboxed mode NEVER falls back to yolo (unsupported platform or
- *   init failure both crash with an actionable error)
+ * - That sandboxed mode NEVER falls back to yolo: startup degrades
+ *   loudly to ask mode (every tool call confirmed), explicit switch
+ *   requests fail with an actionable error
+ * - Windows config passes the vendored srt-win path to initialize()
  * - Tool Call Monitoring (Write/Edit Bypasses)
  */
 
@@ -25,12 +27,26 @@ const mockWrapWithSandboxArgv =
 		) => Promise<{ argv: string[]; env: NodeJS.ProcessEnv }>
 	>();
 
+const mockVendoredSrtWinExe = "/mock/vendor/srt-win.exe";
+
+class mockWindowsSandboxError extends Error {
+	readonly code: string;
+
+	constructor(code: string, message: string) {
+		super(message);
+		this.name = "WindowsSandboxError";
+		this.code = code;
+	}
+}
+
 vi.mock("@anthropic-ai/sandbox-runtime", () => ({
 	SandboxManager: {
 		initialize: mockInitialize,
 		reset: mockReset,
 		wrapWithSandboxArgv: mockWrapWithSandboxArgv,
 	},
+	VENDORED_SRT_WIN_EXE: mockVendoredSrtWinExe,
+	WindowsSandboxError: mockWindowsSandboxError,
 }));
 
 // ---------------------------------------------------------------------------
@@ -210,7 +226,7 @@ describe("extension registration", () => {
 // ---------------------------------------------------------------------------
 
 describe("unsupported platform", () => {
-	it("refuses sandboxed mode instead of falling back to yolo", async () => {
+	it("explicit switch request is refused instead of falling back to yolo", async () => {
 		const platformSpy = vi
 			.spyOn(process, "platform", "get")
 			.mockReturnValue("freebsd" as NodeJS.Platform);
@@ -225,6 +241,30 @@ describe("unsupported platform", () => {
 		);
 		// No yolo status may be set as a silent fallback
 		expect(pi.statuses.some((s) => s.text.includes("YOLO"))).toBe(false);
+
+		platformSpy.mockRestore();
+	});
+
+	it("startup falls back to ask mode loudly (never yolo)", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("freebsd" as NodeJS.Platform);
+
+		mockInitialize.mockResolvedValue(undefined);
+		const pi = createFakePiAPI();
+		await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		const sessionStartHandlers = pi.handlers.get("session_start");
+		for (const handler of sessionStartHandlers ?? []) {
+			await handler({}, ctx); // must not throw
+		}
+
+		expect(
+			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
+		).toBe(true);
+		expect(pi.statuses.some((s) => s.text.includes("YOLO"))).toBe(false);
+		expect(pi.notifications.some((n) => n.level === "error")).toBe(true);
 
 		platformSpy.mockRestore();
 	});
@@ -243,7 +283,15 @@ describe("windows platform", () => {
 
 		await sandboxCommand.handler("sandboxed", ctx);
 
-		expect(mockInitialize).toHaveBeenCalled();
+		// 0.0.73 requires the srt-win broker path explicitly — the
+		// extension must pass the vendored binary shipped with the package.
+		expect(mockInitialize).toHaveBeenCalledWith(
+			expect.objectContaining({
+				windows: expect.objectContaining({
+					srtWin: expect.objectContaining({ path: mockVendoredSrtWinExe }),
+				}),
+			}),
+		);
 		expect(pi.statuses.some((s) => s.text.includes("Sandboxed"))).toBe(true);
 		expect(pi.notifications.some((n) => n.message.includes("yolo"))).toBe(
 			false,
@@ -252,44 +300,79 @@ describe("windows platform", () => {
 		platformSpy.mockRestore();
 	});
 
-	it("missing windows-install crashes with the library's actionable error (no yolo fallback)", async () => {
+	it("missing windows-install: startup falls back to ask loudly, explicit switch throws with fix hint", async () => {
 		const platformSpy = vi
 			.spyOn(process, "platform", "get")
 			.mockReturnValue("win32" as NodeJS.Platform);
 
-		// Mirrors the library's WindowsSandboxError('not_provisioned') message
+		// Mirrors the library's WindowsSandboxError('not_provisioned')
 		mockInitialize.mockRejectedValue(
-			new Error(
+			new mockWindowsSandboxError(
+				"not_provisioned",
 				"Windows sandbox user is not provisioned. Run `npx sandbox-runtime windows-install` (one UAC prompt) to provision it.",
 			),
 		);
 
 		const pi = createFakePiAPI();
-		await loadExtension(pi);
+		const { sandboxCommand } = await loadExtension(pi);
 		const ctx = pi.createFakeContext();
 
+		// Startup: loud ask fallback, no throw
 		const sessionStartHandlers = pi.handlers.get("session_start");
 		for (const handler of sessionStartHandlers ?? []) {
-			await expect(handler({}, ctx)).rejects.toThrow(/windows-install/);
-			await expect(handler({}, ctx)).rejects.toThrow(
-				/Refusing to continue without sandbox/,
-			);
+			await handler({}, ctx);
 		}
+		expect(
+			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
+		).toBe(true);
+		expect(
+			pi.notifications.some(
+				(n) => n.level === "error" && n.message.includes("windows-install"),
+			),
+		).toBe(true);
+
+		// Explicit request: throws with the library error + a fix hint
+		await expect(sandboxCommand.handler("sandboxed", ctx)).rejects.toThrow(
+			/windows-install/,
+		);
+		await expect(sandboxCommand.handler("sandboxed", ctx)).rejects.toThrow(
+			/Fix:/,
+		);
+
+		platformSpy.mockRestore();
+	});
+
+	it("missing srt-win binary: explicit switch mentions reinstalling dependencies", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		mockInitialize.mockRejectedValue(
+			new mockWindowsSandboxError(
+				"srt_win_not_found",
+				"no srt-win path configured; set windows.srtWin.path",
+			),
+		);
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		await expect(sandboxCommand.handler("sandboxed", ctx)).rejects.toThrow(
+			/npm ci/,
+		);
 
 		platformSpy.mockRestore();
 	});
 });
 
 // ---------------------------------------------------------------------------
-// CRITICAL: sandbox init failure on supported platform MUST crash
+// Sandbox init failure at startup MUST degrade to ask mode (never yolo),
+// surface the failure, and keep confirming every tool call
 // ---------------------------------------------------------------------------
 
-describe("sandbox init failure on supported platform", () => {
-	it("must not silently run unsandboxed after init failure", async () => {
-		// This test reproduces the critical security bug:
-		// If SandboxManager.initialize() throws on a supported platform,
-		// subsequent execute() calls MUST throw — never silently run unsandboxed.
-
+describe("sandbox init failure at startup", () => {
+	it("falls back to ask mode, surfaces the error, and confirms every tool call", async () => {
 		const platformSpy = vi
 			.spyOn(process, "platform", "get")
 			.mockReturnValue("darwin" as NodeJS.Platform);
@@ -299,17 +382,38 @@ describe("sandbox init failure on supported platform", () => {
 		);
 
 		const pi = createFakePiAPI();
-		await loadExtension(pi);
+		const { onToolCall } = await loadExtension(pi);
 		const ctx = pi.createFakeContext();
 
-		// session_start triggers switchMode("sandboxed") which must throw
-		// because SandboxManager.initialize fails on a supported platform.
+		// session_start must not throw — it degrades to ask mode
 		const sessionStartHandlers = pi.handlers.get("session_start");
 		for (const handler of sessionStartHandlers ?? []) {
-			await expect(handler({}, ctx)).rejects.toThrow(
-				/failed to initialize sandbox/i,
-			);
+			await handler({}, ctx);
 		}
+
+		expect(
+			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
+		).toBe(true);
+		expect(pi.statuses.some((s) => s.text.includes("YOLO"))).toBe(false);
+		expect(
+			pi.notifications.some(
+				(n) =>
+					n.level === "error" &&
+					n.message.includes("falling back to ask mode") &&
+					n.message.includes("sandbox-exec: command not found"),
+			),
+		).toBe(true);
+
+		// Ask mode confirms every tool call — nothing runs without
+		// explicit approval.
+		const result = onToolCall(
+			{ toolName: "bash", input: { command: "echo hi" } },
+			ctx,
+		);
+		await new Promise((r) => setTimeout(r, 10));
+		expect(ctx.pendingSelects).toHaveLength(1);
+		ctx.pendingSelects[0].resolve("✅ Allow");
+		await result;
 
 		platformSpy.mockRestore();
 	});

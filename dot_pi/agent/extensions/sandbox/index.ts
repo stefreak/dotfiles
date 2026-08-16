@@ -3,13 +3,17 @@
  *
  * Three modes (cycle with Shift+Tab):
  * - **ask** — no sandbox, but every tool call requires user confirmation.
- *   askOutsideSandbox is redundant (sandbox is already off) and auto-approved.
+ *   askOutsideSandbox is redundant (sandbox is already off) and auto-
+ *   approved. Also the startup fallback when the sandbox cannot be
+ *   initialized (the failure is surfaced loudly; never yolo).
  * - **sandboxed** — OS-level enforcement (sandbox-exec on macOS,
  *   bubblewrap on Linux, srt-win on Windows — alpha: dedicated sandbox
  *   user, NTFS ACLs + WFP egress fence, one-time `windows-install` setup).
  *   Read/write allowed in cwd and the system temp dir. If a command hits
  *   restrictions, re-run with askOutsideSandbox: true to request user
- *   permission.
+ *   permission. An explicit switch request (Shift+Tab, /sandbox
+ *   sandboxed) that fails to initialize throws with an actionable error
+ *   and leaves the current mode unchanged.
  * - **yolo** — no sandbox, no questions.
  *
  * Usage:
@@ -23,7 +27,12 @@ import { spawn } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import os from "node:os";
 import * as path from "node:path";
-import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import {
+	SandboxManager,
+	VENDORED_SRT_WIN_EXE,
+	WindowsSandboxError,
+} from "@anthropic-ai/sandbox-runtime";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -44,6 +53,7 @@ import {
 	isReadRestricted,
 	isWriteRestricted,
 	modeStatusText,
+	runtimeConfigForPlatform,
 	type SandboxMode,
 	SUPPORTED_PLATFORMS,
 	sandboxFooterBrief,
@@ -93,6 +103,53 @@ function killProcessTree(pid: number): void {
 			// Process already dead
 		}
 	}
+}
+
+/**
+ * Runtime config for the host platform. On Windows, 0.0.73 requires the
+ * srt-win broker path explicitly (the packaged binary is not
+ * auto-resolved), so point it at the vendored exe shipped with the
+ * npm package.
+ */
+function runtimeConfigForHost(): SandboxRuntimeConfig {
+	const cfg = runtimeConfigForPlatform(process.platform);
+	if (process.platform !== "win32") return cfg;
+	return {
+		...cfg,
+		windows: { srtWin: { path: VENDORED_SRT_WIN_EXE } },
+	};
+}
+
+/**
+ * Short actionable follow-up for a sandbox init failure. Branches on the
+ * library's typed WindowsSandboxError where possible; the library's own
+ * message already carries setup details for provisioning failures.
+ */
+function sandboxFailureHint(platform: NodeJS.Platform, err: unknown): string {
+	if (platform === "win32") {
+		if (err instanceof WindowsSandboxError) {
+			if (err.code === "srt_win_not_found") {
+				return (
+					"Fix: reinstall the extension's dependencies (npm ci in the " +
+					"extension directory), then /sandbox sandboxed."
+				);
+			}
+			if (err.code === "not_provisioned" || err.code === "wfp_fence_inactive") {
+				return (
+					"Fix: run `npx @anthropic-ai/sandbox-runtime windows-install` " +
+					"(one UAC prompt), then /sandbox sandboxed."
+				);
+			}
+		}
+		return (
+			"Fix: run `npx @anthropic-ai/sandbox-runtime windows-install` " +
+			"(one UAC prompt), ensure Git Bash is installed, then /sandbox sandboxed."
+		);
+	}
+	if (platform === "linux") {
+		return "Fix: install bubblewrap and socat, then /sandbox sandboxed.";
+	}
+	return "Fix: after repairing the environment, run /sandbox sandboxed.";
 }
 
 function createSandboxedBashOps(): BashOperations {
@@ -186,6 +243,9 @@ export default function (pi: ExtensionAPI) {
 	let currentMode: SandboxMode = "sandboxed";
 	let sandboxInitialized = false;
 	let toolCallCount = 0;
+	// Reason the sandbox is unavailable (set when startup falls back to
+	// ask mode); shown by /sandbox so the failure is never silent.
+	let sandboxFailReason: string | undefined;
 
 	// Serialize UI dialogs (select/input) so concurrent requests don't
 	// overwrite each other in the TUI (only one dialog slot exists).
@@ -272,8 +332,8 @@ export default function (pi: ExtensionAPI) {
 			sandboxInitialized = false;
 		}
 
-		currentMode = mode;
 		toolCallCount = 0;
+		sandboxFailReason = undefined;
 
 		if (mode === "sandboxed") {
 			const platform = process.platform;
@@ -287,17 +347,22 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			try {
-				await SandboxManager.initialize(DEFAULT_RUNTIME_CONFIG);
-				sandboxInitialized = true;
+				await SandboxManager.initialize(runtimeConfigForHost());
 			} catch (err) {
-				// Same rule: an unsandboxed session is never the fallback.
-				// (On Windows the library's message includes the one-time
-				// `windows-install` setup instructions when missing.)
+				// Same rule: an unsandboxed session is never the silent
+				// fallback. On Windows the library's message already
+				// carries setup details for provisioning failures; the
+				// hint adds the next concrete step.
+				const detail = err instanceof Error ? err.message : String(err);
 				throw new Error(
-					`Failed to initialize sandbox on ${platform}: ${err instanceof Error ? err.message : err}. ` +
-						"Refusing to continue without sandbox. Fix the sandbox and restart.",
+					`Failed to initialize sandbox on ${platform}: ${detail}\n` +
+						sandboxFailureHint(platform, err),
 				);
 			}
+			sandboxInitialized = true;
+			currentMode = mode;
+		} else {
+			currentMode = mode;
 		}
 
 		ctx.ui.setStatus("sandbox", modeStatusText(currentMode));
@@ -507,7 +572,23 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		await switchMode("sandboxed", ctx.cwd, ctx);
+		try {
+			await switchMode("sandboxed", ctx.cwd, ctx);
+		} catch (err) {
+			// The default mode is unavailable. Degrade to ask — every tool
+			// call requires human approval — never to yolo. Surface the
+			// failure loudly so the startup is never silent.
+			currentMode = "ask";
+			sandboxFailReason = err instanceof Error ? err.message : String(err);
+			ctx.ui.setStatus(
+				"sandbox",
+				"⚠️ Ask mode (fallback): sandbox unavailable (/sandbox)",
+			);
+			ctx.ui.notify(
+				`Sandbox unavailable — falling back to ask mode (every tool call requires approval).\n${sandboxFailReason}`,
+				"error",
+			);
+		}
 	});
 
 	pi.on("session_shutdown", async () => {
@@ -544,6 +625,17 @@ export default function (pi: ExtensionAPI) {
 			const lines = [
 				`Mode: ${currentMode}`,
 				`Status: ${modeStatusText(currentMode)}`,
+			];
+
+			if (sandboxFailReason) {
+				lines.push(
+					"",
+					`Sandbox unavailable: ${sandboxFailReason}`,
+					"Re-enable with /sandbox sandboxed once fixed.",
+				);
+			}
+
+			lines.push(
 				"",
 				"Available modes:",
 				"  ask       — confirm every tool call, no sandbox",
@@ -552,7 +644,7 @@ export default function (pi: ExtensionAPI) {
 				"",
 				"Usage: /sandbox <ask|sandboxed|yolo>",
 				"Shortcut: Shift+Tab to cycle modes",
-			];
+			);
 
 			if (currentMode === "sandboxed") {
 				lines.push(
