@@ -6,9 +6,12 @@ import {
 	CONFIRM_ALLOW,
 	CONFIRM_DENY,
 	CONFIRM_OPTIONS,
+	DEFAULT_RUNTIME_CONFIG,
 	isReadRestricted,
 	isWriteRestricted,
 	modeStatusText,
+	runtimeConfigForPlatform,
+	SUPPORTED_PLATFORMS,
 	sandboxFooterBrief,
 	sandboxFooterFull,
 	shouldConfirmTool,
@@ -16,8 +19,164 @@ import {
 } from "./config.js";
 
 // ---------------------------------------------------------------------------
-// DEFAULT_RUNTIME_CONFIG
+// Platform-specific runtime config
 // ---------------------------------------------------------------------------
+
+describe("runtimeConfigForPlatform", () => {
+	it("darwin config matches snapshot", () => {
+		expect(runtimeConfigForPlatform("darwin")).toMatchInlineSnapshot(`
+			{
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "/tmp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			      "~/Library/Application Support",
+			      "~/Library/Keychains",
+			      "~/.local/share/keyrings",
+			      "~/.pki",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "network": {
+			    "allowedDomains": [
+			      "raw.githubusercontent.com",
+			      "deepwiki.com",
+			      "docs.rs",
+			      "pkg.go.dev",
+			      "npmjs.org",
+			      "kagi.com",
+			      "*.kagi.com",
+			      "api.search.brave.com",
+			      "*.youtube.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
+	});
+
+	it("win32 config matches snapshot", () => {
+		expect(runtimeConfigForPlatform("win32")).toMatchInlineSnapshot(`
+			{
+			  "filesystem": {
+			    "allowWrite": [
+			      ".",
+			      "~/AppData/Local/Temp",
+			    ],
+			    "denyRead": [
+			      "~/.ssh",
+			      "~/.aws",
+			      "~/.gnupg",
+			      "~/.config/gh",
+			      "~/AppData/Roaming/gh",
+			    ],
+			    "denyWrite": [
+			      ".env",
+			      ".env.*",
+			      "*.pem",
+			      "*.key",
+			      "**/node_modules/**",
+			      "**/vendor/**",
+			      "**/__pycache__/**",
+			      "**/.venv/**",
+			      "**/.git/**",
+			    ],
+			  },
+			  "network": {
+			    "allowedDomains": [
+			      "raw.githubusercontent.com",
+			      "deepwiki.com",
+			      "docs.rs",
+			      "pkg.go.dev",
+			      "npmjs.org",
+			      "kagi.com",
+			      "*.kagi.com",
+			      "api.search.brave.com",
+			      "*.youtube.com",
+			    ],
+			    "deniedDomains": [],
+			  },
+			}
+		`);
+	});
+
+	it("win32 config shares network rules and deny-write globs with darwin", () => {
+		const win = runtimeConfigForPlatform("win32");
+		const mac = runtimeConfigForPlatform("darwin");
+		expect(win.network).toEqual(mac.network);
+		expect(win.filesystem.denyWrite).toEqual(mac.filesystem.denyWrite);
+		// No macOS-only credential paths leak into the Windows config
+		for (const entry of win.filesystem.denyRead) {
+			expect(entry).not.toContain("Library");
+		}
+	});
+
+	it("DEFAULT_RUNTIME_CONFIG matches the host platform", () => {
+		expect(DEFAULT_RUNTIME_CONFIG).toEqual(
+			runtimeConfigForPlatform(process.platform),
+		);
+	});
+
+	it("win32 is a supported platform", () => {
+		expect(SUPPORTED_PLATFORMS.has("win32")).toBe(true);
+		expect(SUPPORTED_PLATFORMS.has("darwin")).toBe(true);
+		expect(SUPPORTED_PLATFORMS.has("linux")).toBe(true);
+		expect(SUPPORTED_PLATFORMS.has("freebsd")).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Restrictions with the Windows config
+// ---------------------------------------------------------------------------
+
+describe("windows config restrictions", () => {
+	// posix-shaped paths: this exercises config selection and `~`
+	// expansion, not win32 separator semantics (host-dependent).
+	const winCfg = runtimeConfigForPlatform("win32");
+	const home = "/home/user";
+	const cwd = "/workspace/project";
+
+	it("allows writes to the Windows temp dir via ~ expansion", () => {
+		expect(
+			isWriteRestricted(
+				"/home/user/AppData/Local/Temp/f.txt",
+				cwd,
+				home,
+				winCfg,
+			),
+		).toBe(false);
+	});
+
+	it("denies reads of the Windows gh token dir", () => {
+		expect(
+			isReadRestricted("/home/user/AppData/Roaming/gh/hosts.yml", home, winCfg),
+		).toBe(true);
+	});
+
+	it("still applies the shared deny-write globs", () => {
+		expect(
+			isWriteRestricted("/workspace/project/.env", cwd, home, winCfg),
+		).toBe(true);
+		expect(
+			isWriteRestricted("/workspace/project/sub/.git/HEAD", cwd, home, winCfg),
+		).toBe(true);
+	});
+});
 
 describe("shouldConfirmTool", () => {
 	const tools = ["write", "edit", "read", "bash"] as const;

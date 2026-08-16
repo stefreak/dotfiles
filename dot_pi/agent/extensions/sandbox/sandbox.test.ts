@@ -2,9 +2,10 @@
  * Integration tests for the sandbox deny list.
  *
  * These use the real @anthropic-ai/sandbox-runtime to verify that writes
- * to restricted paths are actually blocked by the OS-level sandbox profile.
- * Commands run through sandbox-exec via wrapWithSandbox, just like the
- * extension does in production.
+ * to restricted paths are actually blocked by the OS-level sandbox
+ * (sandbox-exec on macOS, bubblewrap on Linux, srt-win on Windows).
+ * Commands run through wrapWithSandboxArgv, just like the extension does
+ * in production.
  *
  * Key insight: SandboxManager.initialize() resolves denyWrite patterns
  * against process.cwd(), so we must chdir into the test workspace before
@@ -16,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RUNTIME_CONFIG } from "./config.js";
 
@@ -28,13 +30,24 @@ async function sandboxedExec(
 	command: string,
 	cwd: string,
 ): Promise<{ exitCode: number | null; output: string }> {
-	const wrappedCommand = await SandboxManager.wrapWithSandbox(command);
+	// wrapWithSandboxArgv returns a platform-correct spawn descriptor
+	// (the string wrapWithSandbox is not supported on Windows).
+	const { shell } = getShellConfig();
+	const { argv, env } = await SandboxManager.wrapWithSandboxArgv(
+		command,
+		shell,
+		undefined,
+		undefined,
+		cwd,
+	);
 
 	return new Promise((resolve) => {
-		const child = spawn("bash", ["-c", wrappedCommand], {
+		const child = spawn(argv[0], argv.slice(1), {
 			cwd,
-			detached: true,
+			env,
+			detached: process.platform !== "win32",
 			stdio: ["ignore", "pipe", "pipe"],
+			windowsHide: true,
 		});
 
 		let output = "";

@@ -3,8 +3,8 @@
  *
  * Loads the real extension factory against a fake pi API to verify:
  * - Mode transitions via session_start and /sandbox command
- * - That unsupported platforms gracefully fall back to yolo
- * - That sandbox init failure on a supported platform crashes (never silently runs unsandboxed)
+ * - That sandboxed mode NEVER falls back to yolo (unsupported platform or
+ *   init failure both crash with an actionable error)
  * - Tool Call Monitoring (Write/Edit Bypasses)
  */
 
@@ -17,13 +17,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockInitialize = vi.fn<() => Promise<void>>();
 const mockReset = vi.fn<() => Promise<void>>();
-const mockWrapWithSandbox = vi.fn<(cmd: string) => Promise<string>>();
+const mockWrapWithSandboxArgv =
+	vi.fn<
+		(
+			cmd: string,
+			shell: string,
+		) => Promise<{ argv: string[]; env: NodeJS.ProcessEnv }>
+	>();
 
 vi.mock("@anthropic-ai/sandbox-runtime", () => ({
 	SandboxManager: {
 		initialize: mockInitialize,
 		reset: mockReset,
-		wrapWithSandbox: mockWrapWithSandbox,
+		wrapWithSandboxArgv: mockWrapWithSandboxArgv,
 	},
 }));
 
@@ -173,9 +179,12 @@ async function loadExtension(pi: FakePi) {
 beforeEach(() => {
 	mockInitialize.mockReset();
 	mockReset.mockReset();
-	mockWrapWithSandbox.mockReset();
+	mockWrapWithSandboxArgv.mockReset();
 	mockReset.mockResolvedValue(undefined);
-	mockWrapWithSandbox.mockResolvedValue("echo hello");
+	mockWrapWithSandboxArgv.mockResolvedValue({
+		argv: ["/bin/bash", "-c", "echo hello"],
+		env: process.env,
+	});
 });
 
 afterEach(() => {
@@ -197,11 +206,32 @@ describe("extension registration", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Unsupported platform → yolo fallback
+// Sandbox mode must NEVER silently degrade to yolo
 // ---------------------------------------------------------------------------
 
 describe("unsupported platform", () => {
-	it("falls back to yolo via /sandbox command and updates status", async () => {
+	it("refuses sandboxed mode instead of falling back to yolo", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("freebsd" as NodeJS.Platform);
+
+		mockInitialize.mockResolvedValue(undefined);
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		await expect(sandboxCommand.handler("sandboxed", ctx)).rejects.toThrow(
+			/not supported on freebsd/,
+		);
+		// No yolo status may be set as a silent fallback
+		expect(pi.statuses.some((s) => s.text.includes("YOLO"))).toBe(false);
+
+		platformSpy.mockRestore();
+	});
+});
+
+describe("windows platform", () => {
+	it("sandboxed mode works when initialize succeeds", async () => {
 		const platformSpy = vi
 			.spyOn(process, "platform", "get")
 			.mockReturnValue("win32" as NodeJS.Platform);
@@ -213,8 +243,38 @@ describe("unsupported platform", () => {
 
 		await sandboxCommand.handler("sandboxed", ctx);
 
-		expect(pi.notifications.some((n) => n.message.includes("yolo"))).toBe(true);
-		expect(pi.statuses.some((s) => s.text.includes("YOLO"))).toBe(true);
+		expect(mockInitialize).toHaveBeenCalled();
+		expect(pi.statuses.some((s) => s.text.includes("Sandboxed"))).toBe(true);
+		expect(pi.notifications.some((n) => n.message.includes("yolo"))).toBe(
+			false,
+		);
+
+		platformSpy.mockRestore();
+	});
+
+	it("missing windows-install crashes with the library's actionable error (no yolo fallback)", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		// Mirrors the library's WindowsSandboxError('not_provisioned') message
+		mockInitialize.mockRejectedValue(
+			new Error(
+				"Windows sandbox user is not provisioned. Run `npx sandbox-runtime windows-install` (one UAC prompt) to provision it.",
+			),
+		);
+
+		const pi = createFakePiAPI();
+		await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		const sessionStartHandlers = pi.handlers.get("session_start");
+		for (const handler of sessionStartHandlers ?? []) {
+			await expect(handler({}, ctx)).rejects.toThrow(/windows-install/);
+			await expect(handler({}, ctx)).rejects.toThrow(
+				/Refusing to continue without sandbox/,
+			);
+		}
 
 		platformSpy.mockRestore();
 	});

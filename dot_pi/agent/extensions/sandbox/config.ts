@@ -1,6 +1,7 @@
 /**
- * Pure logic for the sandbox extension — no pi or OS dependencies.
- * Extracted for testability.
+ * Pure logic for the sandbox extension — no pi dependencies.
+ * Platform-specific behavior is explicit (parameterized or via
+ * runtimeConfigForPlatform) so it stays testable on any host.
  */
 
 import * as path from "node:path";
@@ -9,53 +10,92 @@ import { minimatch } from "minimatch";
 
 export type SandboxMode = "ask" | "sandboxed" | "yolo";
 
-export const DEFAULT_RUNTIME_CONFIG: SandboxRuntimeConfig = {
-	network: {
-		allowedDomains: [
-			"raw.githubusercontent.com",
-			"deepwiki.com",
-			"docs.rs",
-			"pkg.go.dev",
-			"npmjs.org",
-			"kagi.com",
-			"*.kagi.com",
-			"api.search.brave.com",
-			"*.youtube.com",
-		],
-		deniedDomains: [],
-	},
-	filesystem: {
-		denyRead: [
-			"~/.ssh",
-			"~/.aws",
-			"~/.gnupg",
-			"~/Library/Application Support",
-			"~/Library/Keychains",
-			"~/.local/share/keyrings",
-			"~/.pki",
-		],
-		allowWrite: [".", "/tmp"],
-		denyWrite: [
-			".env",
-			".env.*",
-			"*.pem",
-			"*.key",
-			"**/node_modules/**",
-			"**/vendor/**",
-			"**/__pycache__/**",
-			"**/.venv/**",
-			"**/.git/**",
-		],
-	},
+/** Network policy — identical on all platforms. */
+const NETWORK_RULES: SandboxRuntimeConfig["network"] = {
+	allowedDomains: [
+		"raw.githubusercontent.com",
+		"deepwiki.com",
+		"docs.rs",
+		"pkg.go.dev",
+		"npmjs.org",
+		"kagi.com",
+		"*.kagi.com",
+		"api.search.brave.com",
+		"*.youtube.com",
+	],
+	deniedDomains: [],
 };
+
+/** Write-deny globs — identical on all platforms. */
+const DENY_WRITE_PATTERNS: string[] = [
+	".env",
+	".env.*",
+	"*.pem",
+	"*.key",
+	"**/node_modules/**",
+	"**/vendor/**",
+	"**/__pycache__/**",
+	"**/.venv/**",
+	"**/.git/**",
+];
+
+/**
+ * Runtime config per platform.
+ *
+ * Windows (alpha, enforced via NTFS ACLs + WFP egress fence under a
+ * dedicated sandbox user) targets the credential locations Windows tooling
+ * uses, and allows writing to the per-user temp dir. `~` is expanded by the
+ * library at initialize() time on every platform.
+ */
+export function runtimeConfigForPlatform(
+	platform: NodeJS.Platform,
+): SandboxRuntimeConfig {
+	if (platform === "win32") {
+		return {
+			network: { ...NETWORK_RULES },
+			filesystem: {
+				denyRead: [
+					"~/.ssh",
+					"~/.aws",
+					"~/.gnupg",
+					"~/.config/gh",
+					"~/AppData/Roaming/gh",
+				],
+				allowWrite: [".", "~/AppData/Local/Temp"],
+				denyWrite: [...DENY_WRITE_PATTERNS],
+			},
+		};
+	}
+	return {
+		network: { ...NETWORK_RULES },
+		filesystem: {
+			denyRead: [
+				"~/.ssh",
+				"~/.aws",
+				"~/.gnupg",
+				"~/Library/Application Support",
+				"~/Library/Keychains",
+				"~/.local/share/keyrings",
+				"~/.pki",
+			],
+			allowWrite: [".", "/tmp"],
+			denyWrite: [...DENY_WRITE_PATTERNS],
+		},
+	};
+}
+
+export const DEFAULT_RUNTIME_CONFIG: SandboxRuntimeConfig =
+	runtimeConfigForPlatform(process.platform);
 
 export const ALL_TOOLS = new Set(["bash", "write", "edit", "read"]);
 export const WRITE_TOOLS = new Set(["write", "edit"]);
 
 /**
  * Supported platforms for OS-level sandboxing.
+ * Windows is alpha — see the library README (dedicated sandbox user,
+ * ACL + WFP enforcement; one-time `windows-install` setup required).
  */
-export const SUPPORTED_PLATFORMS = new Set(["darwin", "linux"]);
+export const SUPPORTED_PLATFORMS = new Set(["darwin", "linux", "win32"]);
 
 /**
  * Select dialog options for sandbox bypass approval.
@@ -133,7 +173,10 @@ export function modeStatusText(mode: SandboxMode): string {
 		case "ask":
 			return "🔐 Ask mode: confirm every tool call, no sandbox (/sandbox)";
 		case "sandboxed":
-			return "🎪 Sandboxed mode: write to ., /tmp (/sandbox)";
+			return (
+				"🎪 Sandboxed mode: write to " +
+				`${DEFAULT_RUNTIME_CONFIG.filesystem.allowWrite.join(", ")} (/sandbox)`
+			);
 		case "yolo":
 			return "🚀 YOLO mode: no restrictions, no questions";
 	}
@@ -146,18 +189,18 @@ export function modeStatusText(mode: SandboxMode): string {
 export function isReadRestricted(
 	absolutePath: string,
 	homeDir: string,
+	cfg: SandboxRuntimeConfig = DEFAULT_RUNTIME_CONFIG,
 ): boolean {
-	const cfg = DEFAULT_RUNTIME_CONFIG.filesystem;
 	const normalizedPath = path.resolve(absolutePath);
 
 	// Resolve denyRead paths (handle ~)
-	const resolvedDenyRead = cfg.denyRead.map((p) =>
+	const resolvedDenyRead = cfg.filesystem.denyRead.map((p) =>
 		path.resolve(p.startsWith("~") ? p.replace("~", homeDir) : p),
 	);
 
 	return resolvedDenyRead.some(
 		(denied) =>
-			normalizedPath === denied || normalizedPath.startsWith(`${denied}/`),
+			normalizedPath === denied || normalizedPath.startsWith(denied + path.sep),
 	);
 }
 
@@ -174,23 +217,26 @@ export function isWriteRestricted(
 	absolutePath: string,
 	cwd: string,
 	homeDir: string,
+	cfg: SandboxRuntimeConfig = DEFAULT_RUNTIME_CONFIG,
 ): boolean {
 	const normalizedPath = path.resolve(absolutePath);
 
 	// If you can't read it, you definitely can't write it
-	if (isReadRestricted(normalizedPath, homeDir)) return true;
-
-	const cfg = DEFAULT_RUNTIME_CONFIG.filesystem;
+	if (isReadRestricted(normalizedPath, homeDir, cfg)) return true;
 
 	// Resolve allowed write dirs to absolute paths
-	const allowedAbs = cfg.allowWrite.map((p) =>
-		p === "." ? path.resolve(cwd) : path.resolve(cwd, p),
-	);
+	const allowedAbs = cfg.filesystem.allowWrite.map((p) => {
+		if (p === ".") return path.resolve(cwd);
+		// `~` anchors at the home dir, not the cwd (Windows temp dir)
+		if (p.startsWith("~")) return path.resolve(p.replace("~", homeDir));
+		return path.resolve(cwd, p);
+	});
 
 	// Check if path is under any allowed dir
 	const matchedAllowed = allowedAbs.find(
 		(allowed) =>
-			normalizedPath === allowed || normalizedPath.startsWith(`${allowed}/`),
+			normalizedPath === allowed ||
+			normalizedPath.startsWith(allowed + path.sep),
 	);
 
 	if (!matchedAllowed) return true;
@@ -200,7 +246,7 @@ export function isWriteRestricted(
 	const basename = path.basename(normalizedPath);
 	const relative = path.relative(matchedAllowed, normalizedPath);
 
-	const matchesDeny = cfg.denyWrite.some((pattern) => {
+	const matchesDeny = cfg.filesystem.denyWrite.some((pattern) => {
 		// Use dot: true to ensure hidden files like .env are matched correctly
 		const options = { dot: true };
 		if (minimatch(basename, pattern, options)) return true;

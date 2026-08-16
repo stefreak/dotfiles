@@ -4,9 +4,12 @@
  * Three modes (cycle with Shift+Tab):
  * - **ask** — no sandbox, but every tool call requires user confirmation.
  *   askOutsideSandbox is redundant (sandbox is already off) and auto-approved.
- * - **sandboxed** — OS-level enforcement (sandbox-exec/bubblewrap).
- *   Read/write allowed in cwd and /tmp. If a command hits restrictions,
- *   re-run with askOutsideSandbox: true to request user permission.
+ * - **sandboxed** — OS-level enforcement (sandbox-exec on macOS,
+ *   bubblewrap on Linux, srt-win on Windows — alpha: dedicated sandbox
+ *   user, NTFS ACLs + WFP egress fence, one-time `windows-install` setup).
+ *   Read/write allowed in cwd and the system temp dir. If a command hits
+ *   restrictions, re-run with askOutsideSandbox: true to request user
+ *   permission.
  * - **yolo** — no sandbox, no questions.
  *
  * Usage:
@@ -29,6 +32,7 @@ import type {
 import {
 	type BashOperations,
 	createBashTool,
+	getShellConfig,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -63,6 +67,34 @@ function safeRealpath(absPath: string): string {
 	}
 }
 
+/**
+ * Kill a spawned process and its entire tree.
+ * Unix: SIGKILL the process group (children are spawned detached).
+ * Windows: taskkill /T (process groups don't exist).
+ */
+function killProcessTree(pid: number): void {
+	if (process.platform === "win32") {
+		// detached: don't wait on taskkill to keep the event loop open
+		spawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
+			stdio: "ignore",
+			detached: true,
+			windowsHide: true,
+		});
+		return;
+	}
+	try {
+		process.kill(-pid, "SIGKILL");
+	} catch {
+		// Process group already gone — try the child directly.
+		// ESRCH (already dead) is the expected exit of cleanup.
+		try {
+			process.kill(pid, "SIGKILL");
+		} catch {
+			// Process already dead
+		}
+	}
+}
+
 function createSandboxedBashOps(): BashOperations {
 	return {
 		async exec(command, cwd, { onData, signal, timeout }) {
@@ -70,13 +102,27 @@ function createSandboxedBashOps(): BashOperations {
 				throw new Error(`Working directory does not exist: ${cwd}`);
 			}
 
-			const wrappedCommand = await SandboxManager.wrapWithSandbox(command);
+			// wrapWithSandboxArgv returns a platform-correct spawn descriptor:
+			// macOS/Linux → [shell, "-c", <wrapped>]; Windows → the bundled
+			// srt-win.exe broker argv + env (the string wrapWithSandbox is not
+			// supported on Windows). The inner shell is resolved exactly like
+			// pi's native bash tool (Git Bash on Windows, /bin/bash on Unix).
+			const { shell } = getShellConfig();
+			const { argv, env } = await SandboxManager.wrapWithSandboxArgv(
+				command,
+				shell,
+				undefined,
+				signal,
+				cwd,
+			);
 
 			return new Promise((resolve, reject) => {
-				const child = spawn("bash", ["-c", wrappedCommand], {
+				const child = spawn(argv[0], argv.slice(1), {
 					cwd,
-					detached: true,
+					env,
+					detached: process.platform !== "win32",
 					stdio: ["ignore", "pipe", "pipe"],
+					windowsHide: true,
 				});
 
 				let timedOut = false;
@@ -85,13 +131,7 @@ function createSandboxedBashOps(): BashOperations {
 				if (timeout !== undefined && timeout > 0) {
 					timeoutHandle = setTimeout(() => {
 						timedOut = true;
-						if (child.pid) {
-							try {
-								process.kill(-child.pid, "SIGKILL");
-							} catch {
-								child.kill("SIGKILL");
-							}
-						}
+						if (child.pid) killProcessTree(child.pid);
 					}, timeout * 1000);
 				}
 
@@ -104,13 +144,7 @@ function createSandboxedBashOps(): BashOperations {
 				});
 
 				const onAbort = () => {
-					if (child.pid) {
-						try {
-							process.kill(-child.pid, "SIGKILL");
-						} catch {
-							child.kill("SIGKILL");
-						}
-					}
+					if (child.pid) killProcessTree(child.pid);
 				};
 
 				signal?.addEventListener("abort", onAbort, { once: true });
@@ -244,22 +278,21 @@ export default function (pi: ExtensionAPI) {
 		if (mode === "sandboxed") {
 			const platform = process.platform;
 			if (!SUPPORTED_PLATFORMS.has(platform)) {
-				currentMode = "yolo";
-				ctx.ui.setStatus(
-					"sandbox",
-					`🚀 YOLO mode: not supported on ${platform} (/sandbox)`,
+				// Never silently degrade: sandboxed was requested, so fail
+				// loudly instead of dropping to yolo.
+				throw new Error(
+					`Sandbox is not supported on ${platform}. ` +
+						"Restart with --no-sandbox to run without sandboxing.",
 				);
-				ctx.ui.notify(
-					`Sandbox not supported on ${platform} (yolo mode)`,
-					"warning",
-				);
-				return;
 			}
 
 			try {
 				await SandboxManager.initialize(DEFAULT_RUNTIME_CONFIG);
 				sandboxInitialized = true;
 			} catch (err) {
+				// Same rule: an unsandboxed session is never the fallback.
+				// (On Windows the library's message includes the one-time
+				// `windows-install` setup instructions when missing.)
 				throw new Error(
 					`Failed to initialize sandbox on ${platform}: ${err instanceof Error ? err.message : err}. ` +
 						"Refusing to continue without sandbox. Fix the sandbox and restart.",
@@ -325,12 +358,12 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 
-			// Sandboxed execution — crash if sandbox failed to initialize
-			// on a supported platform (this should never happen after the fix
-			// to switchMode, but belt-and-suspenders).
+			// Sandboxed execution — crash if the sandbox is not initialized
+			// (unsupported platform or failed initialize; switchMode throws,
+			// but belt-and-suspenders: never run unsandboxed).
 			if (!snapshot.init) {
 				throw new Error(
-					"BUG: sandbox mode is active but sandbox is not initialized. " +
+					"Sandbox mode is active but the sandbox is not initialized. " +
 						"Refusing to execute without sandbox.",
 				);
 			}
@@ -449,7 +482,13 @@ export default function (pi: ExtensionAPI) {
 	// --- User bash events ---
 
 	pi.on("user_bash", () => {
-		if (currentMode !== "sandboxed" || !sandboxInitialized) return;
+		if (currentMode !== "sandboxed") return;
+		if (!sandboxInitialized) {
+			throw new Error(
+				"Sandbox mode is active but the sandbox is not initialized. " +
+					"Refusing to run user bash without sandbox.",
+			);
+		}
 		return { operations: createSandboxedBashOps() };
 	});
 
@@ -508,8 +547,8 @@ export default function (pi: ExtensionAPI) {
 				"",
 				"Available modes:",
 				"  ask       — confirm every tool call, no sandbox",
-				"  sandboxed — OS-level enforcement, write to . and /tmp",
-				"  yolo      — no restrictions, no questions",
+				"  sandboxed — OS-level enforcement, write to . and the temp dir",
+				"  yolo      — no restrictions, no questions (requires explicit --no-sandbox)",
 				"",
 				"Usage: /sandbox <ask|sandboxed|yolo>",
 				"Shortcut: Shift+Tab to cycle modes",
