@@ -28,6 +28,8 @@ const mockWrapWithSandboxArgv =
 	>();
 
 const mockVendoredSrtWinExe = "/mock/vendor/srt-win.exe";
+const mockCheckDependenciesAsync =
+	vi.fn<() => Promise<{ warnings: string[]; errors: string[] }>>();
 
 class mockWindowsSandboxError extends Error {
 	readonly code: string;
@@ -44,6 +46,7 @@ vi.mock("@anthropic-ai/sandbox-runtime", () => ({
 		initialize: mockInitialize,
 		reset: mockReset,
 		wrapWithSandboxArgv: mockWrapWithSandboxArgv,
+		checkDependenciesAsync: mockCheckDependenciesAsync,
 	},
 	VENDORED_SRT_WIN_EXE: mockVendoredSrtWinExe,
 	WindowsSandboxError: mockWindowsSandboxError,
@@ -196,11 +199,13 @@ beforeEach(() => {
 	mockInitialize.mockReset();
 	mockReset.mockReset();
 	mockWrapWithSandboxArgv.mockReset();
+	mockCheckDependenciesAsync.mockReset();
 	mockReset.mockResolvedValue(undefined);
 	mockWrapWithSandboxArgv.mockResolvedValue({
 		argv: ["/bin/bash", "-c", "echo hello"],
 		env: process.env,
 	});
+	mockCheckDependenciesAsync.mockResolvedValue({ warnings: [], errors: [] });
 });
 
 afterEach(() => {
@@ -236,8 +241,13 @@ describe("unsupported platform", () => {
 		const { sandboxCommand } = await loadExtension(pi);
 		const ctx = pi.createFakeContext();
 
-		await expect(sandboxCommand.handler("sandboxed", ctx)).rejects.toThrow(
-			/not supported on freebsd/,
+		const err = await sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toMatchInlineSnapshot(
+			`"The sandbox is not supported on freebsd. Restart pi with --no-sandbox to run without it."`,
 		);
 		// No yolo status may be set as a silent fallback
 		expect(pi.statuses.some((s) => s.text.includes("YOLO"))).toBe(false);
@@ -264,7 +274,16 @@ describe("unsupported platform", () => {
 			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
 		).toBe(true);
 		expect(pi.statuses.some((s) => s.text.includes("YOLO"))).toBe(false);
-		expect(pi.notifications.some((n) => n.level === "error")).toBe(true);
+		expect(pi.notifications).toMatchInlineSnapshot(`
+			[
+			  {
+			    "level": "error",
+			    "message": "The sandbox could not be started — running in ask mode (every command needs your approval).
+
+			The sandbox is not supported on freebsd. Restart pi with --no-sandbox to run without it.",
+			  },
+			]
+		`);
 
 		platformSpy.mockRestore();
 	});
@@ -325,24 +344,61 @@ describe("windows platform", () => {
 		expect(
 			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
 		).toBe(true);
-		expect(
-			pi.notifications.some(
-				(n) => n.level === "error" && n.message.includes("windows-install"),
-			),
-		).toBe(true);
+		expect(pi.notifications).toMatchInlineSnapshot(`
+			[
+			  {
+			    "level": "error",
+			    "message": "The sandbox could not be started — running in ask mode (every command needs your approval).
 
-		// Explicit request: throws with the library error + a fix hint
-		await expect(sandboxCommand.handler("sandboxed", ctx)).rejects.toThrow(
-			/windows-install/,
-		);
-		await expect(sandboxCommand.handler("sandboxed", ctx)).rejects.toThrow(
-			/Fix:/,
-		);
+			The sandbox is not set up on this Windows machine yet.
+			Run this once (one admin prompt, about a minute):
+			  npx @anthropic-ai/sandbox-runtime windows-install
+			Then run /sandbox sandboxed.",
+			  },
+			]
+		`);
+
+		// Explicit request: throws the plain, actionable setup message
+		const err = await sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toMatchInlineSnapshot(`
+			"The sandbox is not set up on this Windows machine yet.
+			Run this once (one admin prompt, about a minute):
+			  npx @anthropic-ai/sandbox-runtime windows-install
+			Then run /sandbox sandboxed."
+		`);
+
+		// The raw library detail is preserved for /sandbox debugging
+		const n0 = pi.notifications.length;
+		await sandboxCommand.handler("", ctx);
+		expect(pi.notifications.slice(n0)).toMatchInlineSnapshot(`
+			[
+			  {
+			    "level": "info",
+			    "message": "Mode: ask
+			Status: 🔐 Ask mode: confirm every tool call, no sandbox (/sandbox)
+
+			Sandbox unavailable: Windows sandbox user is not provisioned. Run \`npx sandbox-runtime windows-install\` (one UAC prompt) to provision it.
+			Re-enable with /sandbox sandboxed once fixed.
+
+			Available modes:
+			  ask       — confirm every tool call, no sandbox
+			  sandboxed — OS-level enforcement, write to . and the temp dir
+			  yolo      — no restrictions, no questions (requires explicit --no-sandbox)
+
+			Usage: /sandbox <ask|sandboxed|yolo>
+			Shortcut: Shift+Tab to cycle modes",
+			  },
+			]
+		`);
 
 		platformSpy.mockRestore();
 	});
 
-	it("missing srt-win binary: explicit switch mentions reinstalling dependencies", async () => {
+	it("missing srt-win binary (unexpected): surfaces the raw error with full stack trace", async () => {
 		const platformSpy = vi
 			.spyOn(process, "platform", "get")
 			.mockReturnValue("win32" as NodeJS.Platform);
@@ -358,9 +414,205 @@ describe("windows platform", () => {
 		const { sandboxCommand } = await loadExtension(pi);
 		const ctx = pi.createFakeContext();
 
-		await expect(sandboxCommand.handler("sandboxed", ctx)).rejects.toThrow(
-			/npm ci/,
+		// Startup falls back to ask loudly (never yolo)
+		for (const handler of pi.handlers.get("session_start") ?? []) {
+			await handler({}, ctx);
+		}
+
+		// A missing vendored binary is NOT the "not set up yet" case:
+		// the explicit switch surfaces the raw library error — with its
+		// full stack trace printed — instead of guessing a fix.
+		const n0 = pi.notifications.length;
+		const err = await sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toMatchInlineSnapshot(
+			`"no srt-win path configured; set windows.srtWin.path"`,
 		);
+		// The full stack trace is printed; the snapshot strips the frames
+		// (non-deterministic across edits), and a separate check proves a
+		// trace is actually present
+		const notices = pi.notifications.slice(n0);
+		expect(
+			notices.map((n) => n.message.replace(/\n\s+at[^\n]*/g, "")),
+		).toMatchInlineSnapshot(`
+			[
+			  "Sandbox initialization failed:
+
+			WindowsSandboxError: no srt-win path configured; set windows.srtWin.path",
+			]
+		`);
+		expect(notices.some((n) => /\n\s+at /.test(n.message))).toBe(true);
+
+		// The raw detail is preserved for /sandbox debugging
+		const n1 = pi.notifications.length;
+		await sandboxCommand.handler("", ctx);
+		expect(pi.notifications.slice(n1)).toMatchInlineSnapshot(`
+			[
+			  {
+			    "level": "info",
+			    "message": "Mode: ask
+			Status: 🔐 Ask mode: confirm every tool call, no sandbox (/sandbox)
+
+			Sandbox unavailable: no srt-win path configured; set windows.srtWin.path
+			Re-enable with /sandbox sandboxed once fixed.
+
+			Available modes:
+			  ask       — confirm every tool call, no sandbox
+			  sandboxed — OS-level enforcement, write to . and the temp dir
+			  yolo      — no restrictions, no questions (requires explicit --no-sandbox)
+
+			Usage: /sandbox <ask|sandboxed|yolo>
+			Shortcut: Shift+Tab to cycle modes",
+			  },
+			]
+		`);
+
+		platformSpy.mockRestore();
+	});
+
+	it("failed re-switch from a live sandbox drops to ask, not sandboxed-without-enforcement", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		// Start sandboxed (initialize succeeds)
+		mockInitialize.mockResolvedValue(undefined);
+		for (const handler of pi.handlers.get("session_start") ?? []) {
+			await handler({}, ctx);
+		}
+		expect(pi.statuses.some((s) => s.text.includes("Sandboxed"))).toBe(true);
+
+		// Re-request sandboxed while initialize now fails: the live
+		// sandbox is torn down and cannot be restored
+		mockInitialize.mockRejectedValue(
+			new mockWindowsSandboxError(
+				"srt_win_not_found",
+				"no srt-win path configured; set windows.srtWin.path",
+			),
+		);
+		const err = await sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toMatchInlineSnapshot(
+			`"no srt-win path configured; set windows.srtWin.path"`,
+		);
+
+		// Must not leave mode=sandboxed with no enforcement: drop to
+		// the ask fallback
+		expect(
+			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
+		).toBe(true);
+
+		// /sandbox reflects the degraded state
+		const n0 = pi.notifications.length;
+		await sandboxCommand.handler("", ctx);
+		expect(pi.notifications.slice(n0)).toMatchInlineSnapshot(`
+			[
+			  {
+			    "level": "info",
+			    "message": "Mode: ask
+			Status: 🔐 Ask mode: confirm every tool call, no sandbox (/sandbox)
+
+			Sandbox unavailable: no srt-win path configured; set windows.srtWin.path
+			Re-enable with /sandbox sandboxed once fixed.
+
+			Available modes:
+			  ask       — confirm every tool call, no sandbox
+			  sandboxed — OS-level enforcement, write to . and the temp dir
+			  yolo      — no restrictions, no questions (requires explicit --no-sandbox)
+
+			Usage: /sandbox <ask|sandboxed|yolo>
+			Shortcut: Shift+Tab to cycle modes",
+			  },
+			]
+		`);
+
+		platformSpy.mockRestore();
+	});
+});
+
+describe("linux platform", () => {
+	it("missing tools (expected): install hint with the exact missing deps", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("linux" as NodeJS.Platform);
+
+		mockInitialize.mockRejectedValue(
+			new Error(
+				"Sandbox dependencies not available: bubblewrap (bwrap) not installed, socat not installed",
+			),
+		);
+		mockCheckDependenciesAsync.mockResolvedValue({
+			warnings: [],
+			errors: ["bubblewrap (bwrap) not installed", "socat not installed"],
+		});
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		// The expected first-run failure: a short, actionable message
+		// listing the exact missing tools
+		const err = await sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toMatchInlineSnapshot(`
+			"The sandbox needs tools that are not installed.
+			bubblewrap (bwrap) not installed, socat not installed
+			Install them (e.g. \`apt install bubblewrap socat\`), then run /sandbox sandboxed."
+		`);
+
+		platformSpy.mockRestore();
+	});
+
+	it("other failure (unexpected): raw error with full stack trace, no install hint", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("linux" as NodeJS.Platform);
+
+		mockInitialize.mockRejectedValue(new Error("socat bridge failed: EACCES"));
+		mockCheckDependenciesAsync.mockResolvedValue({
+			warnings: [],
+			errors: [],
+		});
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		const err = await sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toMatchInlineSnapshot(
+			`"socat bridge failed: EACCES"`,
+		);
+		// The full stack trace is printed; the snapshot strips the frames
+		// (non-deterministic across edits), and a separate check proves a
+		// trace is actually present
+		const notices = pi.notifications;
+		expect(
+			notices.map((n) => n.message.replace(/\n\s+at[^\n]*/g, "")),
+		).toMatchInlineSnapshot(`
+			[
+			  "Sandbox initialization failed:
+
+			Error: socat bridge failed: EACCES",
+			]
+		`);
+		expect(notices.some((n) => /\n\s+at /.test(n.message))).toBe(true);
 
 		platformSpy.mockRestore();
 	});
@@ -382,7 +634,7 @@ describe("sandbox init failure at startup", () => {
 		);
 
 		const pi = createFakePiAPI();
-		const { onToolCall } = await loadExtension(pi);
+		const { onToolCall, sandboxCommand } = await loadExtension(pi);
 		const ctx = pi.createFakeContext();
 
 		// session_start must not throw — it degrades to ask mode
@@ -395,14 +647,47 @@ describe("sandbox init failure at startup", () => {
 			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
 		).toBe(true);
 		expect(pi.statuses.some((s) => s.text.includes("YOLO"))).toBe(false);
+		// macOS has no setup step, so this failure is unexpected: the
+		// raw error with its full stack trace is printed, not a guess.
+		// The snapshot strips the stack frames (non-deterministic across
+		// edits); a separate check proves a trace is actually present.
 		expect(
-			pi.notifications.some(
-				(n) =>
-					n.level === "error" &&
-					n.message.includes("falling back to ask mode") &&
-					n.message.includes("sandbox-exec: command not found"),
-			),
-		).toBe(true);
+			pi.notifications.map((n) => n.message.replace(/\n\s+at[^\n]*/g, "")),
+		).toMatchInlineSnapshot(`
+			[
+			  "Sandbox initialization failed:
+
+			Error: sandbox-exec: command not found",
+			  "The sandbox could not be started — running in ask mode (every command needs your approval).
+
+			sandbox-exec: command not found",
+			]
+		`);
+		expect(pi.notifications.some((n) => /\n\s+at /.test(n.message))).toBe(true);
+
+		// The raw error detail is preserved for /sandbox debugging
+		const n0 = pi.notifications.length;
+		await sandboxCommand.handler("", ctx);
+		expect(pi.notifications.slice(n0)).toMatchInlineSnapshot(`
+			[
+			  {
+			    "level": "info",
+			    "message": "Mode: ask
+			Status: 🔐 Ask mode: confirm every tool call, no sandbox (/sandbox)
+
+			Sandbox unavailable: sandbox-exec: command not found
+			Re-enable with /sandbox sandboxed once fixed.
+
+			Available modes:
+			  ask       — confirm every tool call, no sandbox
+			  sandboxed — OS-level enforcement, write to . and the temp dir
+			  yolo      — no restrictions, no questions (requires explicit --no-sandbox)
+
+			Usage: /sandbox <ask|sandboxed|yolo>
+			Shortcut: Shift+Tab to cycle modes",
+			  },
+			]
+		`);
 
 		// Ask mode confirms every tool call — nothing runs without
 		// explicit approval.

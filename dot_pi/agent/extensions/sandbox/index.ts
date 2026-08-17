@@ -121,35 +121,49 @@ function runtimeConfigForHost(): SandboxRuntimeConfig {
 }
 
 /**
- * Short actionable follow-up for a sandbox init failure. Branches on the
- * library's typed WindowsSandboxError where possible; the library's own
- * message already carries setup details for provisioning failures.
+ * Plain-language, user-facing message for an *expected* sandbox setup
+ * failure — the failures with a known, one-time fix. Returns undefined
+ * for anything else: the caller prints the unexpected failure raw (with
+ * its full stack trace) and rethrows the error untouched, because a
+ * guessed cause ("not set up yet", "install bubblewrap") is a red
+ * herring that hides the real error.
  */
-function sandboxFailureHint(platform: NodeJS.Platform, err: unknown): string {
+async function expectedSetupFailureMessage(
+	platform: NodeJS.Platform,
+	err: unknown,
+): Promise<string | undefined> {
 	if (platform === "win32") {
-		if (err instanceof WindowsSandboxError) {
-			if (err.code === "srt_win_not_found") {
-				return (
-					"Fix: reinstall the extension's dependencies (npm ci in the " +
-					"extension directory), then /sandbox sandboxed."
-				);
-			}
-			if (err.code === "not_provisioned" || err.code === "wfp_fence_inactive") {
-				return (
-					"Fix: run `npx @anthropic-ai/sandbox-runtime windows-install` " +
-					"(one UAC prompt), then /sandbox sandboxed."
-				);
-			}
+		// Only the not-yet-provisioned state is expected. In particular,
+		// srt_win_not_found means this extension's own dependencies are
+		// broken — unexpected, surfaced raw.
+		if (err instanceof WindowsSandboxError && err.code === "not_provisioned") {
+			return (
+				"The sandbox is not set up on this Windows machine yet.\n" +
+				"Run this once (one admin prompt, about a minute):\n" +
+				"  npx @anthropic-ai/sandbox-runtime windows-install\n" +
+				"Then run /sandbox sandboxed."
+			);
 		}
-		return (
-			"Fix: run `npx @anthropic-ai/sandbox-runtime windows-install` " +
-			"(one UAC prompt), ensure Git Bash is installed, then /sandbox sandboxed."
-		);
+		return undefined;
 	}
 	if (platform === "linux") {
-		return "Fix: install bubblewrap and socat, then /sandbox sandboxed.";
+		// Missing bubblewrap/socat is the one expected Linux failure. The
+		// library throws it as a plain Error, so detect it via the
+		// library's structured dependency check — never by matching
+		// error text — and list the exact missing tools.
+		const deps = await SandboxManager.checkDependenciesAsync();
+		if (deps.errors.length > 0) {
+			return (
+				"The sandbox needs tools that are not installed.\n" +
+				`${deps.errors.join(", ")}\n` +
+				"Install them (e.g. `apt install bubblewrap socat`), then run /sandbox sandboxed."
+			);
+		}
+		return undefined;
 	}
-	return "Fix: after repairing the environment, run /sandbox sandboxed.";
+	// macOS ships sandbox-exec — there is no setup step, so any
+	// initialization failure is unexpected.
+	return undefined;
 }
 
 function createSandboxedBashOps(): BashOperations {
@@ -224,6 +238,11 @@ function createSandboxedBashOps(): BashOperations {
 }
 
 const MODES: SandboxMode[] = ["ask", "sandboxed", "yolo"];
+
+// Status shown when the sandbox is unavailable and the session runs in
+// the degraded ask fallback.
+const ASK_FALLBACK_STATUS =
+	"⚠️ Ask mode (fallback): sandbox unavailable (/sandbox)";
 
 function nextMode(current: SandboxMode): SandboxMode {
 	const idx = MODES.indexOf(current);
@@ -327,6 +346,7 @@ export default function (pi: ExtensionAPI) {
 		ctx: ExtensionContext | ExtensionCommandContext,
 	) {
 		// Tear down existing sandbox
+		const hadSandbox = sandboxInitialized;
 		if (sandboxInitialized) {
 			await SandboxManager.reset();
 			sandboxInitialized = false;
@@ -340,9 +360,10 @@ export default function (pi: ExtensionAPI) {
 			if (!SUPPORTED_PLATFORMS.has(platform)) {
 				// Never silently degrade: sandboxed was requested, so fail
 				// loudly instead of dropping to yolo.
+				sandboxFailReason = `Not supported on ${platform}`;
 				throw new Error(
-					`Sandbox is not supported on ${platform}. ` +
-						"Restart with --no-sandbox to run without sandboxing.",
+					`The sandbox is not supported on ${platform}. ` +
+						"Restart pi with --no-sandbox to run without it.",
 				);
 			}
 
@@ -350,14 +371,33 @@ export default function (pi: ExtensionAPI) {
 				await SandboxManager.initialize(runtimeConfigForHost());
 			} catch (err) {
 				// Same rule: an unsandboxed session is never the silent
-				// fallback. On Windows the library's message already
-				// carries setup details for provisioning failures; the
-				// hint adds the next concrete step.
-				const detail = err instanceof Error ? err.message : String(err);
-				throw new Error(
-					`Failed to initialize sandbox on ${platform}: ${detail}\n` +
-						sandboxFailureHint(platform, err),
+				// fallback. Expected setup failures get a short,
+				// actionable message; anything else is unexpected — print
+				// it raw with the full stack trace (a guessed cause would
+				// be a red herring) and rethrow the error untouched. The
+				// notification carries the trace because pi renders only
+				// error.message for command and shortcut errors. The raw
+				// one-line detail stays in sandboxFailReason for /sandbox
+				// debugging.
+				sandboxFailReason = err instanceof Error ? err.message : String(err);
+				if (hadSandbox) {
+					// We tore down a live sandbox that we cannot restore —
+					// drop to ask (the fail-safe mode) instead of leaving
+					// currentMode at "sandboxed" with no enforcement.
+					currentMode = "ask";
+					ctx.ui.setStatus("sandbox", ASK_FALLBACK_STATUS);
+				}
+				const expected = await expectedSetupFailureMessage(platform, err);
+				if (expected !== undefined) {
+					throw new Error(expected);
+				}
+				ctx.ui.notify(
+					`Sandbox initialization failed:\n\n${
+						err instanceof Error ? (err.stack ?? err.message) : String(err)
+					}`,
+					"error",
 				);
+				throw err;
 			}
 			sandboxInitialized = true;
 			currentMode = mode;
@@ -577,15 +617,14 @@ export default function (pi: ExtensionAPI) {
 		} catch (err) {
 			// The default mode is unavailable. Degrade to ask — every tool
 			// call requires human approval — never to yolo. Surface the
-			// failure loudly so the startup is never silent.
+			// failure loudly so the startup is never silent. (The raw
+			// detail is already in sandboxFailReason, set by switchMode.)
 			currentMode = "ask";
-			sandboxFailReason = err instanceof Error ? err.message : String(err);
-			ctx.ui.setStatus(
-				"sandbox",
-				"⚠️ Ask mode (fallback): sandbox unavailable (/sandbox)",
-			);
+			ctx.ui.setStatus("sandbox", ASK_FALLBACK_STATUS);
 			ctx.ui.notify(
-				`Sandbox unavailable — falling back to ask mode (every tool call requires approval).\n${sandboxFailReason}`,
+				`The sandbox could not be started — running in ask mode (every command needs your approval).\n\n${
+					err instanceof Error ? err.message : String(err)
+				}`,
 				"error",
 			);
 		}
