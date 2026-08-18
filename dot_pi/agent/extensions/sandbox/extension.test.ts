@@ -30,6 +30,24 @@ const mockWrapWithSandboxArgv =
 const mockVendoredSrtWinExe = "/mock/vendor/srt-win.exe";
 const mockCheckDependenciesAsync =
 	vi.fn<() => Promise<{ warnings: string[]; errors: string[] }>>();
+const mockResolveSrtWin =
+	vi.fn<
+		(cfg: { path: string }) => {
+			exe: string;
+			prependArgs: string[];
+		}
+	>();
+
+type MockWindowsUserStatus = {
+	provisioned: boolean;
+	credPresent: boolean;
+	groupExists: boolean;
+	inBuiltinUsers: boolean;
+	inSandboxGroup: boolean;
+	hiddenFromLogon: boolean;
+};
+const mockGetWindowsSandboxUserStatusAsync =
+	vi.fn<(opts?: { srtWin?: unknown }) => Promise<MockWindowsUserStatus>>();
 
 class mockWindowsSandboxError extends Error {
 	readonly code: string;
@@ -50,6 +68,8 @@ vi.mock("@anthropic-ai/sandbox-runtime", () => ({
 	},
 	VENDORED_SRT_WIN_EXE: mockVendoredSrtWinExe,
 	WindowsSandboxError: mockWindowsSandboxError,
+	resolveSrtWin: mockResolveSrtWin,
+	getWindowsSandboxUserStatusAsync: mockGetWindowsSandboxUserStatusAsync,
 }));
 
 // ---------------------------------------------------------------------------
@@ -200,12 +220,27 @@ beforeEach(() => {
 	mockReset.mockReset();
 	mockWrapWithSandboxArgv.mockReset();
 	mockCheckDependenciesAsync.mockReset();
+	mockResolveSrtWin.mockReset();
+	mockGetWindowsSandboxUserStatusAsync.mockReset();
 	mockReset.mockResolvedValue(undefined);
 	mockWrapWithSandboxArgv.mockResolvedValue({
 		argv: ["/bin/bash", "-c", "echo hello"],
 		env: process.env,
 	});
 	mockCheckDependenciesAsync.mockResolvedValue({ warnings: [], errors: [] });
+	mockResolveSrtWin.mockImplementation((cfg: { path: string }) => ({
+		exe: cfg.path,
+		prependArgs: ["srt-win"],
+	}));
+	// Default: the user-status probe itself fails (e.g. srt-win.exe
+	// missing/broken) — i.e. NOT the expected "not provisioned" state,
+	// so unexpected errors surface raw.
+	mockGetWindowsSandboxUserStatusAsync.mockRejectedValue(
+		new mockWindowsSandboxError(
+			"spawn_failed",
+			"srt-win user status: spawn failed",
+		),
+	);
 });
 
 afterEach(() => {
@@ -351,8 +386,8 @@ describe("windows platform", () => {
 			    "message": "The sandbox could not be started — running in ask mode (every command needs your approval).
 
 			The sandbox is not set up on this Windows machine yet.
-			Run this once (one admin prompt, about a minute):
-			  npx @anthropic-ai/sandbox-runtime windows-install
+			Run this once from the sandbox extension directory (one UAC prompt, about a minute):
+			  npm exec srt -- windows-install
 			Then run /sandbox sandboxed.",
 			  },
 			]
@@ -366,8 +401,8 @@ describe("windows platform", () => {
 		expect(err).toBeInstanceOf(Error);
 		expect((err as Error).message).toMatchInlineSnapshot(`
 			"The sandbox is not set up on this Windows machine yet.
-			Run this once (one admin prompt, about a minute):
-			  npx @anthropic-ai/sandbox-runtime windows-install
+			Run this once from the sandbox extension directory (one UAC prompt, about a minute):
+			  npm exec srt -- windows-install
 			Then run /sandbox sandboxed."
 		`);
 
@@ -394,6 +429,83 @@ describe("windows platform", () => {
 			  },
 			]
 		`);
+
+		platformSpy.mockRestore();
+	});
+
+	it("not provisioned via the deps-check plain Error (expected): clean setup message, no stack trace", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		// The shape the library actually throws on a never-provisioned
+		// machine: initialize() runs the generic deps check BEFORE the
+		// Windows block, and the unprovisioned user state surfaces as a
+		// plain Error — not WindowsSandboxError('not_provisioned').
+		mockInitialize.mockRejectedValue(
+			new Error(
+				"Sandbox dependencies not available: Sandbox user is not provisioned (user=false, cred=false). " +
+					"Windows sandbox needs a one-time install (one UAC prompt):\n" +
+					"  npx sandbox-runtime windows-install\n" +
+					"  — or call installWindowsSandbox(), or run `srt-win.exe install` directly.\n" +
+					"No logout is needed: the WFP filter keys on the dedicated `srt-sandbox` user's SID, so your network is unaffected.",
+			),
+		);
+		// The same user-status probe initialize() runs: not provisioned.
+		mockGetWindowsSandboxUserStatusAsync.mockResolvedValue({
+			provisioned: false,
+			credPresent: false,
+			groupExists: false,
+			inBuiltinUsers: false,
+			inSandboxGroup: false,
+			hiddenFromLogon: false,
+		});
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		// Startup: loud ask fallback with the CLEAN setup message — no
+		// stack trace (the bug: this path was classified as unexpected
+		// and printed the full trace).
+		const sessionStartHandlers = pi.handlers.get("session_start");
+		for (const handler of sessionStartHandlers ?? []) {
+			await handler({}, ctx);
+		}
+		expect(
+			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
+		).toBe(true);
+		expect(pi.notifications).toMatchInlineSnapshot(`
+			[
+			  {
+			    "level": "error",
+			    "message": "The sandbox could not be started — running in ask mode (every command needs your approval).
+
+			The sandbox is not set up on this Windows machine yet.
+			Run this once from the sandbox extension directory (one UAC prompt, about a minute):
+			  npm exec srt -- windows-install
+			Then run /sandbox sandboxed.",
+			  },
+			]
+		`);
+		expect(pi.notifications.every((n) => !/\n\s+at /.test(n.message))).toBe(
+			true,
+		);
+
+		// Explicit request: throws the clean setup message, not the raw
+		// library error with its trace.
+		const err = await sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toMatchInlineSnapshot(`
+			"The sandbox is not set up on this Windows machine yet.
+			Run this once from the sandbox extension directory (one UAC prompt, about a minute):
+			  npm exec srt -- windows-install
+			Then run /sandbox sandboxed."
+		`);
+		expect(mockGetWindowsSandboxUserStatusAsync).toHaveBeenCalled();
 
 		platformSpy.mockRestore();
 	});

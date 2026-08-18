@@ -29,6 +29,8 @@ import os from "node:os";
 import * as path from "node:path";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import {
+	getWindowsSandboxUserStatusAsync,
+	resolveSrtWin,
 	SandboxManager,
 	VENDORED_SRT_WIN_EXE,
 	WindowsSandboxError,
@@ -134,15 +136,35 @@ async function expectedSetupFailureMessage(
 ): Promise<string | undefined> {
 	if (platform === "win32") {
 		// Only the not-yet-provisioned state is expected. In particular,
-		// srt_win_not_found means this extension's own dependencies are
-		// broken — unexpected, surfaced raw.
+		// a broken srt-win binary (srt_win_not_found, spawn failures)
+		// means this extension's own dependencies are broken —
+		// unexpected, surfaced raw.
+		//
+		// The not_provisioned WindowsSandboxError below is only a fast
+		// path: in practice initialize() runs the generic deps check
+		// FIRST, and that check reports the unprovisioned user as a
+		// string in errors[] — thrown as a plain Error before the
+		// Windows block ever runs. So classify by re-running the same
+		// user-status probe initialize() uses (structured booleans,
+		// never error-text matching). If the probe itself fails (e.g.
+		// srt-win.exe missing), the state is NOT "expected" — return
+		// undefined and let the original unexpected error surface raw.
+		const setupHint =
+			"The sandbox is not set up on this Windows machine yet.\n" +
+			"Run this once from the sandbox extension directory (one UAC prompt, about a minute):\n" +
+			"  npm exec srt -- windows-install\n" +
+			"Then run /sandbox sandboxed.";
 		if (err instanceof WindowsSandboxError && err.code === "not_provisioned") {
-			return (
-				"The sandbox is not set up on this Windows machine yet.\n" +
-				"Run this once (one admin prompt, about a minute):\n" +
-				"  npx @anthropic-ai/sandbox-runtime windows-install\n" +
-				"Then run /sandbox sandboxed."
-			);
+			return setupHint;
+		}
+		try {
+			const user = await getWindowsSandboxUserStatusAsync({
+				srtWin: resolveSrtWin({ path: VENDORED_SRT_WIN_EXE }),
+			});
+			if (!user.provisioned || !user.credPresent) return setupHint;
+		} catch {
+			// Probe failed: not the expected setup state — the original
+			// error is unexpected and is surfaced raw by the caller.
 		}
 		return undefined;
 	}
