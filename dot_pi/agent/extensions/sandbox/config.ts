@@ -117,6 +117,18 @@ export const CONFIRM_ALLOW = CONFIRM_OPTIONS[0];
 export const CONFIRM_DENY = CONFIRM_OPTIONS[1];
 
 /**
+ * Select dialog options for the one-time Windows sandbox setup offer
+ * (runs `installWindowsSandboxAsync` in-process: one UAC prompt).
+ */
+export const SETUP_OPTIONS = [
+	"✅ Run setup now (UAC prompt)",
+	"⏭️ Not now (ask mode)",
+] as const;
+
+export const SETUP_RUN = SETUP_OPTIONS[0];
+export const SETUP_LATER = SETUP_OPTIONS[1];
+
+/**
  * Check whether a tool requires user confirmation in the given mode.
  * Ask mode: confirm all tools. Other modes: no confirmation.
  */

@@ -30,6 +30,7 @@ import * as path from "node:path";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import {
 	getWindowsSandboxUserStatusAsync,
+	installWindowsSandboxAsync,
 	resolveSrtWin,
 	SandboxManager,
 	VENDORED_SRT_WIN_EXE,
@@ -57,6 +58,8 @@ import {
 	modeStatusText,
 	runtimeConfigForPlatform,
 	type SandboxMode,
+	SETUP_OPTIONS,
+	SETUP_RUN,
 	SUPPORTED_PLATFORMS,
 	sandboxFooterBrief,
 	sandboxFooterFull,
@@ -411,6 +414,73 @@ export default function (pi: ExtensionAPI) {
 				}
 				const expected = await expectedSetupFailureMessage(platform, err);
 				if (expected !== undefined) {
+					// The one-time Windows setup is the only expected failure
+					// remediable in-process: offer it as a dialog when the
+					// ctx can show one (TUI/RPC — hasUI). Print/JSON mode and
+					// a declined offer keep the actionable message.
+					if (platform === "win32" && ctx.hasUI) {
+						const choice = await ctx.ui.select(
+							"Windows sandbox needs a one-time setup (one UAC prompt, about a minute). Run it now?",
+							[...SETUP_OPTIONS],
+						);
+						if (choice === SETUP_RUN) {
+							let installed: { cancelled?: boolean };
+							try {
+								installed = await installWindowsSandboxAsync({
+									srtWin: resolveSrtWin({ path: VENDORED_SRT_WIN_EXE }),
+								});
+							} catch (installErr) {
+								// Unexpected install failure: surface raw —
+								// never guess a fix for it.
+								sandboxFailReason =
+									installErr instanceof Error
+										? installErr.message
+										: String(installErr);
+								ctx.ui.notify(
+									`Windows sandbox setup failed:\n\n${
+										installErr instanceof Error
+											? (installErr.stack ?? installErr.message)
+											: String(installErr)
+									}`,
+									"error",
+								);
+								throw installErr;
+							}
+							if (installed.cancelled) {
+								// A declined UAC prompt is not a failure — a
+								// clean, retryable outcome.
+								throw new Error(
+									"Windows sandbox setup was cancelled at the UAC prompt. Nothing changed.\n" +
+										"Run /sandbox sandboxed to try again.",
+								);
+							}
+							try {
+								await SandboxManager.initialize(runtimeConfigForHost());
+							} catch (initErr) {
+								// Setup succeeded but the sandbox still won't
+								// start — unexpected: surface raw.
+								sandboxFailReason =
+									initErr instanceof Error ? initErr.message : String(initErr);
+								ctx.ui.notify(
+									`Sandbox initialization failed after setup:\n\n${
+										initErr instanceof Error
+											? (initErr.stack ?? initErr.message)
+											: String(initErr)
+									}`,
+									"error",
+								);
+								throw initErr;
+							}
+							sandboxInitialized = true;
+							currentMode = mode;
+							ctx.ui.setStatus("sandbox", modeStatusText(currentMode));
+							ctx.ui.notify(
+								"Windows sandbox setup complete — sandboxed mode",
+								"info",
+							);
+							return;
+						}
+					}
 					throw new Error(expected);
 				}
 				ctx.ui.notify(

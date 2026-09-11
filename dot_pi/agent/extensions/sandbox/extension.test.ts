@@ -7,11 +7,13 @@
  *   loudly to ask mode (every tool call confirmed), explicit switch
  *   requests fail with an actionable error
  * - Windows config passes the vendored srt-win path to initialize()
+ * - One-time Windows setup offer (dialog → in-process install → re-init)
  * - Tool Call Monitoring (Write/Edit Bypasses)
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SETUP_LATER, SETUP_RUN } from "./config.js";
 
 // ---------------------------------------------------------------------------
 // Mock @anthropic-ai/sandbox-runtime so we control SandboxManager behavior
@@ -48,6 +50,8 @@ type MockWindowsUserStatus = {
 };
 const mockGetWindowsSandboxUserStatusAsync =
 	vi.fn<(opts?: { srtWin?: unknown }) => Promise<MockWindowsUserStatus>>();
+const mockInstallWindowsSandboxAsync =
+	vi.fn<(opts?: unknown) => Promise<{ cancelled?: boolean }>>();
 
 class mockWindowsSandboxError extends Error {
 	readonly code: string;
@@ -70,7 +74,26 @@ vi.mock("@anthropic-ai/sandbox-runtime", () => ({
 	WindowsSandboxError: mockWindowsSandboxError,
 	resolveSrtWin: mockResolveSrtWin,
 	getWindowsSandboxUserStatusAsync: mockGetWindowsSandboxUserStatusAsync,
+	installWindowsSandboxAsync: mockInstallWindowsSandboxAsync,
 }));
+
+// Shared fixtures: the exact shapes the library produces on a
+// never-provisioned Windows machine.
+const DEPS_CHECK_NOT_PROVISIONED_ERROR = new Error(
+	"Sandbox dependencies not available: Sandbox user is not provisioned (user=false, cred=false). " +
+		"Windows sandbox needs a one-time install (one UAC prompt):\n" +
+		"  npx sandbox-runtime windows-install\n" +
+		"  — or call installWindowsSandbox(), or run `srt-win.exe install` directly.\n" +
+		"No logout is needed: the WFP filter keys on the dedicated `srt-sandbox` user's SID, so your network is unaffected.",
+);
+const NOT_PROVISIONED_STATUS = {
+	provisioned: false,
+	credPresent: false,
+	groupExists: false,
+	inBuiltinUsers: false,
+	inSandboxGroup: false,
+	hiddenFromLogon: false,
+} satisfies MockWindowsUserStatus;
 
 // ---------------------------------------------------------------------------
 // Mock os and fs
@@ -184,6 +207,7 @@ function createFakePiAPI() {
 					title: string;
 					resolve: (choice: string) => void;
 				}>,
+				hasUI: true,
 				pendingInputs: [] as Array<{
 					resolve: (value: string | undefined) => void;
 				}>,
@@ -211,6 +235,24 @@ async function loadExtension(pi: FakePi) {
 	};
 }
 
+/**
+ * Wait for the latest select dialog and resolve it with a choice.
+ * Multi-phase tests share one ctx, so pendingSelects accumulates —
+ * always target the LATEST dialog, not [0].
+ */
+async function resolveLatestDialog(
+	ctx: {
+		pendingSelects: Array<{ title: string; resolve: (c: string) => void }>;
+	},
+	choice: string,
+	delayMs = 10,
+): Promise<void> {
+	await new Promise((r) => setTimeout(r, delayMs));
+	const dialog = ctx.pendingSelects[ctx.pendingSelects.length - 1];
+	if (!dialog) throw new Error("expected a pending select dialog");
+	dialog.resolve(choice);
+}
+
 // ---------------------------------------------------------------------------
 // Reset mocks between tests
 // ---------------------------------------------------------------------------
@@ -222,6 +264,8 @@ beforeEach(() => {
 	mockCheckDependenciesAsync.mockReset();
 	mockResolveSrtWin.mockReset();
 	mockGetWindowsSandboxUserStatusAsync.mockReset();
+	mockInstallWindowsSandboxAsync.mockReset();
+	mockInstallWindowsSandboxAsync.mockResolvedValue({ cancelled: false });
 	mockReset.mockResolvedValue(undefined);
 	mockWrapWithSandboxArgv.mockResolvedValue({
 		argv: ["/bin/bash", "-c", "echo hello"],
@@ -371,10 +415,13 @@ describe("windows platform", () => {
 		const { sandboxCommand } = await loadExtension(pi);
 		const ctx = pi.createFakeContext();
 
-		// Startup: loud ask fallback, no throw
+		// Startup: loud ask fallback, no throw. The setup offer dialog
+		// appears; declining keeps the clean-message behavior.
 		const sessionStartHandlers = pi.handlers.get("session_start");
 		for (const handler of sessionStartHandlers ?? []) {
-			await handler({}, ctx);
+			const p = handler({}, ctx);
+			await resolveLatestDialog(ctx, SETUP_LATER);
+			await p;
 		}
 		expect(
 			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
@@ -393,11 +440,14 @@ describe("windows platform", () => {
 			]
 		`);
 
-		// Explicit request: throws the plain, actionable setup message
-		const err = await sandboxCommand
+		// Explicit request: decline the setup offer → throws the plain,
+		// actionable setup message
+		const p = sandboxCommand
 			.handler("sandboxed", ctx)
 			.then(() => undefined)
 			.catch((e: unknown) => e);
+		await resolveLatestDialog(ctx, SETUP_LATER);
+		const err = await p;
 		expect(err).toBeInstanceOf(Error);
 		expect((err as Error).message).toMatchInlineSnapshot(`
 			"The sandbox is not set up on this Windows machine yet.
@@ -442,24 +492,11 @@ describe("windows platform", () => {
 		// machine: initialize() runs the generic deps check BEFORE the
 		// Windows block, and the unprovisioned user state surfaces as a
 		// plain Error — not WindowsSandboxError('not_provisioned').
-		mockInitialize.mockRejectedValue(
-			new Error(
-				"Sandbox dependencies not available: Sandbox user is not provisioned (user=false, cred=false). " +
-					"Windows sandbox needs a one-time install (one UAC prompt):\n" +
-					"  npx sandbox-runtime windows-install\n" +
-					"  — or call installWindowsSandbox(), or run `srt-win.exe install` directly.\n" +
-					"No logout is needed: the WFP filter keys on the dedicated `srt-sandbox` user's SID, so your network is unaffected.",
-			),
-		);
+		mockInitialize.mockRejectedValue(DEPS_CHECK_NOT_PROVISIONED_ERROR);
 		// The same user-status probe initialize() runs: not provisioned.
-		mockGetWindowsSandboxUserStatusAsync.mockResolvedValue({
-			provisioned: false,
-			credPresent: false,
-			groupExists: false,
-			inBuiltinUsers: false,
-			inSandboxGroup: false,
-			hiddenFromLogon: false,
-		});
+		mockGetWindowsSandboxUserStatusAsync.mockResolvedValue(
+			NOT_PROVISIONED_STATUS,
+		);
 
 		const pi = createFakePiAPI();
 		const { sandboxCommand } = await loadExtension(pi);
@@ -467,10 +504,12 @@ describe("windows platform", () => {
 
 		// Startup: loud ask fallback with the CLEAN setup message — no
 		// stack trace (the bug: this path was classified as unexpected
-		// and printed the full trace).
+		// and printed the full trace). Decline the setup offer.
 		const sessionStartHandlers = pi.handlers.get("session_start");
 		for (const handler of sessionStartHandlers ?? []) {
-			await handler({}, ctx);
+			const p = handler({}, ctx);
+			await resolveLatestDialog(ctx, SETUP_LATER);
+			await p;
 		}
 		expect(
 			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
@@ -492,12 +531,14 @@ describe("windows platform", () => {
 			true,
 		);
 
-		// Explicit request: throws the clean setup message, not the raw
-		// library error with its trace.
-		const err = await sandboxCommand
+		// Explicit request: decline the offer → throws the clean setup
+		// message, not the raw library error with its trace.
+		const p = sandboxCommand
 			.handler("sandboxed", ctx)
 			.then(() => undefined)
 			.catch((e: unknown) => e);
+		await resolveLatestDialog(ctx, SETUP_LATER);
+		const err = await p;
 		expect(err).toBeInstanceOf(Error);
 		expect((err as Error).message).toMatchInlineSnapshot(`
 			"The sandbox is not set up on this Windows machine yet.
@@ -506,6 +547,282 @@ describe("windows platform", () => {
 			Then run /sandbox sandboxed."
 		`);
 		expect(mockGetWindowsSandboxUserStatusAsync).toHaveBeenCalled();
+		expect(mockInstallWindowsSandboxAsync).not.toHaveBeenCalled();
+
+		platformSpy.mockRestore();
+	});
+
+	it("not provisioned: setup offer approved, install + re-init succeed → sandboxed", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		// First initialize (the switch) fails not-provisioned; the
+		// post-setup retry succeeds.
+		mockInitialize
+			.mockRejectedValueOnce(DEPS_CHECK_NOT_PROVISIONED_ERROR)
+			.mockResolvedValue(undefined);
+		mockGetWindowsSandboxUserStatusAsync.mockResolvedValue(
+			NOT_PROVISIONED_STATUS,
+		);
+		mockInstallWindowsSandboxAsync.mockResolvedValue({ cancelled: false });
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		const p = sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		await new Promise((r) => setTimeout(r, 10));
+		expect(ctx.pendingSelects).toHaveLength(1);
+		expect(ctx.pendingSelects[0].title).toContain("Windows sandbox");
+		ctx.pendingSelects[0].resolve(SETUP_RUN);
+
+		const err = await p;
+		expect(err).toBeUndefined();
+		// The install ran once against the vendored srt-win path…
+		expect(mockInstallWindowsSandboxAsync).toHaveBeenCalledTimes(1);
+		expect(mockResolveSrtWin).toHaveBeenCalledWith({
+			path: mockVendoredSrtWinExe,
+		});
+		// …and the sandbox initialized on retry (second call).
+		expect(mockInitialize).toHaveBeenCalledTimes(2);
+		expect(pi.statuses.some((s) => s.text.includes("Sandboxed"))).toBe(true);
+		expect(
+			pi.notifications.some((n) => n.message.includes("setup complete")),
+		).toBe(true);
+		expect(pi.notifications.every((n) => !/\n\s+at /.test(n.message))).toBe(
+			true,
+		);
+
+		platformSpy.mockRestore();
+	});
+
+	it("not provisioned: setup approved but cancelled at UAC → clean error, no retry", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		mockInitialize
+			.mockRejectedValueOnce(DEPS_CHECK_NOT_PROVISIONED_ERROR) // startup
+			.mockRejectedValueOnce(DEPS_CHECK_NOT_PROVISIONED_ERROR); // explicit switch
+		mockGetWindowsSandboxUserStatusAsync.mockResolvedValue(
+			NOT_PROVISIONED_STATUS,
+		);
+		mockInstallWindowsSandboxAsync.mockResolvedValue({ cancelled: true });
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		// Startup: decline the offer → ask fallback
+		for (const handler of pi.handlers.get("session_start") ?? []) {
+			const p = handler({}, ctx);
+			await resolveLatestDialog(ctx, SETUP_LATER);
+			await p;
+		}
+		expect(
+			pi.statuses.some((s) => s.text.includes("Ask mode (fallback)")),
+		).toBe(true);
+
+		// Explicit: approve the offer, then cancel at the UAC prompt
+		const p = sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		await resolveLatestDialog(ctx, SETUP_RUN);
+		const err = await p;
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toMatchInlineSnapshot(`
+			"Windows sandbox setup was cancelled at the UAC prompt. Nothing changed.
+			Run /sandbox sandboxed to try again."
+		`);
+		// No (re-)initialization attempt after a cancelled install
+		expect(mockInitialize).toHaveBeenCalledTimes(2);
+		expect(mockInstallWindowsSandboxAsync).toHaveBeenCalledTimes(1);
+		expect(pi.notifications.every((n) => !/\n\s+at /.test(n.message))).toBe(
+			true,
+		);
+
+		platformSpy.mockRestore();
+	});
+
+	it("not provisioned: setup approved but install fails (unexpected) → raw error with stack", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		mockInitialize
+			.mockRejectedValueOnce(DEPS_CHECK_NOT_PROVISIONED_ERROR) // startup
+			.mockRejectedValueOnce(DEPS_CHECK_NOT_PROVISIONED_ERROR); // explicit switch
+		mockGetWindowsSandboxUserStatusAsync.mockResolvedValue(
+			NOT_PROVISIONED_STATUS,
+		);
+		mockInstallWindowsSandboxAsync.mockRejectedValue(
+			new mockWindowsSandboxError(
+				"install_failed",
+				"UAC prompt was refused by the user",
+			),
+		);
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		// Startup: decline the offer → ask fallback
+		for (const handler of pi.handlers.get("session_start") ?? []) {
+			const p = handler({}, ctx);
+			await resolveLatestDialog(ctx, SETUP_LATER);
+			await p;
+		}
+
+		// Explicit: approve — the install itself fails unexpectedly
+		const p = sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		await resolveLatestDialog(ctx, SETUP_RUN);
+		const err = await p;
+		expect(err).toBeInstanceOf(mockWindowsSandboxError);
+		// Raw failure with full stack trace (a guessed fix would be a
+		// red herring); the snapshot strips the frames, a separate check
+		// proves a trace is present.
+		const notices = pi.notifications.filter((n) =>
+			n.message.includes("Windows sandbox setup failed:"),
+		);
+		expect(
+			notices.map((n) => n.message.replace(/\n\s+at[^\n]*/g, "")),
+		).toMatchInlineSnapshot(`
+			[
+			  "Windows sandbox setup failed:
+
+			WindowsSandboxError: UAC prompt was refused by the user",
+			]
+		`);
+		expect(notices.some((n) => /\n\s+at /.test(n.message))).toBe(true);
+
+		platformSpy.mockRestore();
+	});
+
+	it("not provisioned: setup installed but re-init fails (unexpected) → raw error with stack", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		mockInitialize
+			.mockRejectedValueOnce(DEPS_CHECK_NOT_PROVISIONED_ERROR) // startup
+			.mockRejectedValueOnce(DEPS_CHECK_NOT_PROVISIONED_ERROR) // explicit switch
+			.mockRejectedValueOnce(
+				// post-setup retry
+				new Error("WFP egress verify failed: unexpected"),
+			);
+		mockGetWindowsSandboxUserStatusAsync.mockResolvedValue(
+			NOT_PROVISIONED_STATUS,
+		);
+		mockInstallWindowsSandboxAsync.mockResolvedValue({ cancelled: false });
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		// Startup: decline the offer → ask fallback
+		for (const handler of pi.handlers.get("session_start") ?? []) {
+			const p = handler({}, ctx);
+			await resolveLatestDialog(ctx, SETUP_LATER);
+			await p;
+		}
+
+		// Explicit: approve — install succeeds but the sandbox still
+		// won't start
+		const p = sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		await resolveLatestDialog(ctx, SETUP_RUN);
+		const err = await p;
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toBe("WFP egress verify failed: unexpected");
+		const notices = pi.notifications.filter((n) =>
+			n.message.includes("Sandbox initialization failed after setup:"),
+		);
+		expect(
+			notices.map((n) => n.message.replace(/\n\s+at[^\n]*/g, "")),
+		).toMatchInlineSnapshot(`
+			[
+			  "Sandbox initialization failed after setup:
+
+			Error: WFP egress verify failed: unexpected",
+			]
+		`);
+		expect(notices.some((n) => /\n\s+at /.test(n.message))).toBe(true);
+
+		platformSpy.mockRestore();
+	});
+
+	it("not provisioned without UI (print mode): no dialog, clean message, no install", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		mockInitialize.mockRejectedValue(DEPS_CHECK_NOT_PROVISIONED_ERROR);
+		mockGetWindowsSandboxUserStatusAsync.mockResolvedValue(
+			NOT_PROVISIONED_STATUS,
+		);
+
+		const pi = createFakePiAPI();
+		const { sandboxCommand } = await loadExtension(pi);
+		const ctx = pi.createFakeContext({ hasUI: false });
+
+		const err = await sandboxCommand
+			.handler("sandboxed", ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		expect(ctx.pendingSelects).toHaveLength(0);
+		expect(err).toBeInstanceOf(Error);
+		expect((err as Error).message).toMatchInlineSnapshot(`
+			"The sandbox is not set up on this Windows machine yet.
+			Run this once from the sandbox extension directory (one UAC prompt, about a minute):
+			  npm exec srt -- windows-install
+			Then run /sandbox sandboxed."
+		`);
+		expect(mockInstallWindowsSandboxAsync).not.toHaveBeenCalled();
+
+		platformSpy.mockRestore();
+	});
+
+	it("not provisioned at startup: setup offer approved → sandboxed after install", async () => {
+		const platformSpy = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("win32" as NodeJS.Platform);
+
+		mockInitialize
+			.mockRejectedValueOnce(DEPS_CHECK_NOT_PROVISIONED_ERROR) // startup
+			.mockResolvedValue(undefined); // post-setup retry
+		mockGetWindowsSandboxUserStatusAsync.mockResolvedValue(
+			NOT_PROVISIONED_STATUS,
+		);
+		mockInstallWindowsSandboxAsync.mockResolvedValue({ cancelled: false });
+
+		const pi = createFakePiAPI();
+		await loadExtension(pi);
+		const ctx = pi.createFakeContext();
+
+		// First-run flow: the startup offer is accepted, the install
+		// runs, and the session comes up sandboxed (must not throw).
+		const p = (pi.handlers.get("session_start") ?? [])[0]({}, ctx);
+		await new Promise((r) => setTimeout(r, 10));
+		expect(ctx.pendingSelects).toHaveLength(1);
+		ctx.pendingSelects[0].resolve(SETUP_RUN);
+		await p;
+
+		expect(pi.statuses.some((s) => s.text.includes("Sandboxed"))).toBe(true);
+		expect(mockInitialize).toHaveBeenCalledTimes(2);
+		expect(mockInstallWindowsSandboxAsync).toHaveBeenCalledTimes(1);
+		expect(pi.notifications.every((n) => !/\n\s+at /.test(n.message))).toBe(
+			true,
+		);
 
 		platformSpy.mockRestore();
 	});
