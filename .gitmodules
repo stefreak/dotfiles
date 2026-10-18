@@ -2,3 +2,6 @@
 	path = dot_pi/agent/skills/drunk-claude
 	url = https://github.com/KorroAi/drunk-claude
 	branch = master
+[submodule "skills/pebble-watchface-agent-skill"]
+	path = skills/pebble-watchface-agent-skill
+	url = https://github.com/coredevices/pebble-watchface-agent-skill
