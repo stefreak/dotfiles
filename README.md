@@ -26,6 +26,7 @@ Then set secrets by adding them to `~/.config/chezmoi/chezmoi.toml`:
 [data]
   braveSearchApi = "your-brave-api-key"    # required for web search
   zaiApi = "your-zai-api-key"              # optional, for z.ai models
+  lyceumApi = "your-lyceum-api-key"        # optional, for lyceum models
 ```
 
 Then run:

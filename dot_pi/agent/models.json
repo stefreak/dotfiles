@@ -1,5 +1,24 @@
 {
   "providers": {
+    "lyceum": {
+      "baseUrl": "https://api.lyceum.technology/openai/v1",
+      "api": "openai-completions",
+      "compat": {
+        "supportsDeveloperRole": true,
+        "thinkingFormat": "qwen-chat-template",
+        "requiresThinkingAsText": true
+      },
+      "models": [
+        {
+          "id": "deepseek/deepseek-v4.1-flash",
+          "name": "DeepSeek v4.1 Flash (lyceum)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 262144,
+          "maxTokens": 81920
+        }
+      ]
+    },
     "llama-swap": {
       "baseUrl": "http://homeassistant.tail6a6911.ts.net:8088/v1",
       "api": "openai-completions",
