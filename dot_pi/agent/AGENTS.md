@@ -13,6 +13,7 @@
 
 - **Never use `npx`.** Use `npm exec` to run locally installed binaries (e.g. `npm exec vitest run`, `npm exec tsc --noEmit`) or use `npm run` scripts. `npx` downloads and executes arbitrary packages from npm without review — it is an arbitrary code execution vector. No exceptions.
 - **Never run destructive remote commands without explicit permission.** This includes (but is not limited to): `reboot`, `shutdown`, `rm -rf`, `ha host reboot`, `ha apps uninstall`, `docker rm`, `mkfs`, `dd`, or any command that destroys data or causes downtime. Always propose the command and wait for approval. No exceptions.
+- **Never sleep unconditionally for more than 45 seconds.** A blind `sleep 120` blocks the whole turn and is indistinguishable from a hang. To wait longer, poll — repeat short sleeps (≤ 45s) with a condition check in between (e.g. `until <check>; do sleep 5; done`), or run the wait in the background and check on it periodically.
 
 # Engineering Principles
 
