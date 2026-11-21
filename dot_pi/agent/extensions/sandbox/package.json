@@ -21,7 +21,7 @@
 		"typebox": "^1.4.7"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.15",
+		"@biomejs/biome": "^2.6.8",
 		"@earendil-works/pi-coding-agent": "^1.5.2",
 		"@types/node": "^26.6.6",
 		"tsx": "^4.23.15",
