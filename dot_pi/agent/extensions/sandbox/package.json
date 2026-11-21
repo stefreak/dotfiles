@@ -17,7 +17,7 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sandbox-runtime": "^0.0.81",
-		"minimatch": "^10.2.5",
+		"minimatch": "^11.0.9",
 		"typebox": "^1.4.7"
 	},
 	"devDependencies": {
